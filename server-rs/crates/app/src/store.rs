@@ -674,6 +674,23 @@ impl StateStore {
         Ok(())
     }
 
+    /// Atomically mark a refresh token's jti as used, returning whether this call was the
+    /// one that consumed it.
+    ///
+    /// `false` means the jti is unknown, already used, or expired — all three are the same
+    /// answer to a caller ("this token is not good"), and collapsing them here is what makes
+    /// rotation single-use. Python's `consume_refresh_jti` raises 401 on a missing row for
+    /// the same reason: a token whose jti was never registered is not a token this server
+    /// issued, and treating "no row" as "not revoked" would let a rotated token be replayed
+    /// for its full 30 days.
+    pub fn consume_jti(&self, jti: &str) -> Result<bool> {
+        let affected = self.conn.execute(
+            "UPDATE refresh_token_jtis SET revoked=1 WHERE jti=?1 AND revoked=0",
+            params![jti],
+        )?;
+        Ok(affected == 1)
+    }
+
     pub fn is_jti_revoked(&self, jti: &str) -> Result<bool> {
         let row: Option<i64> = self
             .conn

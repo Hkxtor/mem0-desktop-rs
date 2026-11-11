@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use axum::extract::State;
 use axum::http::HeaderMap;
-use axum::response::Json;
+use axum::response::{IntoResponse, Json};
 use axum::Extension;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -228,7 +228,9 @@ pub async fn refresh(
         .store
         .lock()
         .map_err(|_| ApiError::internal("store lock poisoned"))?;
-    if store.is_jti_revoked(&claims.jti)? {
+    // Consuming the jti is the validity check: it fails for an unknown, already used, or
+    // revoked token, so a rotated token cannot be replayed.
+    if !store.consume_jti(&claims.jti)? {
         return Err(ApiError::unauthorized("Refresh token is no longer valid."));
     }
     let user = store.get_user_by_id(&claims.sub)?.map(|u| AuthUser {
@@ -241,14 +243,6 @@ pub async fn refresh(
         Some(u) => u,
         None => return Err(ApiError::unauthorized("User not found.")),
     };
-    // revoke old jti
-    store
-        .conn
-        .execute(
-            "UPDATE refresh_token_jtis SET revoked=1 WHERE jti=?1",
-            [claims.jti.as_str()],
-        )
-        .ok();
     drop(store);
     Ok(Json(token_response(&state, &user)?))
 }
@@ -381,45 +375,147 @@ pub async fn onboarding_complete(
     Ok(Json(json!({ "message": "Onboarding completed" })))
 }
 
-// ---- /auth/session (cookie-oriented variants used by the dashboard) ----
+// ---- /auth/session: the browser's half of the session dance ----
+//
+// The dashboard keeps its access token in memory and its refresh token in an `HttpOnly`
+// cookie it can neither read nor write. That makes these three endpoints the only way the
+// browser can hold a session, and none of them can require a bearer token: `PUT` runs
+// before anything is stored, `POST` is what a client calls *because* its access token
+// expired, and `DELETE` has to work when the token is already dead. They are public in
+// `auth_middleware` for exactly that reason, and carry their own credential — the cookie.
 
-pub async fn put_session() -> ApiResult<Json<Value>> {
-    // PUT /auth/session in Python refreshes the session cookie; for the REST port we
-    // accept it and return 200 with the same shape as POST.
-    Ok(Json(json!({ "message": "Session refreshed" })))
+/// Name and lifetime of the refresh cookie. The name is the Python server's
+/// (`REFRESH_COOKIE_NAME`), so a profile that switched builds keeps its session.
+pub const REFRESH_COOKIE_NAME: &str = "mem0_refresh_token";
+const REFRESH_COOKIE_MAX_AGE: u64 = REFRESH_TTL_SECS;
+
+/// Read one cookie out of a request's `Cookie` header.
+fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
+    let raw = headers.get(axum::http::header::COOKIE)?.to_str().ok()?;
+    raw.split(';')
+        .filter_map(|pair| pair.split_once('='))
+        .find(|(k, _)| k.trim() == name)
+        .map(|(_, v)| v.trim().to_string())
+        .filter(|v| !v.is_empty())
 }
 
+/// Attach a `Set-Cookie` that stores the refresh token, or removes it when `token` is None.
+///
+/// `Secure` is deliberately absent: this server only ever listens on plain HTTP over
+/// loopback, where a `Secure` cookie would never be sent back and the session would silently
+/// never work. A deployment behind a TLS proxy would need it, and would also need to be a
+/// deployment this app does not currently support.
+fn with_refresh_cookie(
+    mut response: axum::response::Response,
+    token: Option<&str>,
+) -> axum::response::Response {
+    let cookie = match token {
+        Some(token) => format!(
+            "{name}={token}; Max-Age={max_age}; Path=/; HttpOnly; SameSite=Lax",
+            name = REFRESH_COOKIE_NAME,
+            max_age = REFRESH_COOKIE_MAX_AGE,
+        ),
+        // `Max-Age=0` removes it in every browser; the value is left empty rather than
+        // omitted so the attributes match the one that set it.
+        None => format!(
+            "{name}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax",
+            name = REFRESH_COOKIE_NAME,
+        ),
+    };
+    if let Ok(value) = axum::http::HeaderValue::from_str(&cookie) {
+        response
+            .headers_mut()
+            .append(axum::http::header::SET_COOKIE, value);
+    }
+    response
+}
+
+/// A JSON response that also clears the cookie — used for every session failure, so a dead
+/// token does not linger and make the next page load retry it.
+fn session_failure(status: axum::http::StatusCode, detail: &str) -> axum::response::Response {
+    let body = (status, Json(json!({ "detail": detail }))).into_response();
+    with_refresh_cookie(body, None)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StoreSessionRequest {
+    pub refresh_token: String,
+}
+
+/// `PUT /auth/session` — park the token `/auth/login` just minted in a cookie.
+///
+/// The token is not validated: it was issued by this server a moment ago, and the jti is
+/// single-use, so validating here would consume it before the browser ever exchanges it.
+pub async fn put_session(
+    Json(body): Json<StoreSessionRequest>,
+) -> ApiResult<axum::response::Response> {
+    if body.refresh_token.is_empty() {
+        return Err(ApiError::bad_request("Missing refresh_token."));
+    }
+    let response = Json(json!({ "ok": true })).into_response();
+    Ok(with_refresh_cookie(response, Some(&body.refresh_token)))
+}
+
+/// `POST /auth/session` — trade the cookie for a fresh access token, rotating the cookie.
+///
+/// Rotation is not optional: the exchange revokes the presented jti, so a response that
+/// returned a new access token but left the old cookie in place would break the *next*
+/// refresh.
 pub async fn post_session(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(body): Json<RefreshRequest>,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<axum::response::Response> {
+    let Some(refresh_token) = cookie_value(&headers, REFRESH_COOKIE_NAME) else {
+        return Ok(session_failure(
+            axum::http::StatusCode::UNAUTHORIZED,
+            "No session.",
+        ));
+    };
     state.rate_limiter.check(&rate_key(&headers), "refresh")?;
-    refresh(State(state), headers, Json(body)).await
+    match refresh(
+        State(state),
+        headers,
+        Json(RefreshRequest { refresh_token }),
+    )
+    .await
+    {
+        Ok(Json(payload)) => {
+            let rotated = payload
+                .get("refresh_token")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let access = payload.get("access_token").cloned().unwrap_or(Value::Null);
+            let body =
+                Json(json!({ "access_token": access, "token_type": "bearer" })).into_response();
+            Ok(with_refresh_cookie(body, rotated.as_deref()))
+        }
+        // Expired, revoked, already rotated, or the user is gone: the cookie is dead
+        // weight, so drop it and let the dashboard show the login screen.
+        Err(e) => Ok(session_failure(e.status, &e.detail)),
+    }
 }
 
+/// `DELETE /auth/session` — log out. Idempotent: there may be nothing to drop.
+///
+/// The presented refresh token is revoked when it decodes cleanly, which the Python server
+/// does not do (it has no verified token to revoke). Revoking is strictly better: a copied
+/// cookie stops working the moment its owner logs out.
 pub async fn delete_session(
     State(state): State<Arc<AppState>>,
-    Extension(auth): Extension<AuthContext>,
-) -> ApiResult<Json<Value>> {
-    if let Some(auth_type) = Some(auth.auth_type) {
-        let _ = auth_type;
+    headers: HeaderMap,
+) -> ApiResult<axum::response::Response> {
+    if let Some(token) = cookie_value(&headers, REFRESH_COOKIE_NAME) {
+        if let Ok(claims) = auth::decode_token(&state.jwt_secret, &token) {
+            if let Ok(store) = state.store.lock() {
+                let _ = store.conn.execute(
+                    "UPDATE refresh_token_jtis SET revoked=1 WHERE jti=?1",
+                    [claims.jti.as_str()],
+                );
+            }
+        }
     }
-    // revoke all jtis for the user
-    if let Some(uid) = &auth.user_id {
-        let store = state
-            .store
-            .lock()
-            .map_err(|_| ApiError::internal("store lock poisoned"))?;
-        store
-            .conn
-            .execute(
-                "UPDATE refresh_token_jtis SET revoked=1 WHERE user_id=?1",
-                [uid.as_str()],
-            )
-            .ok();
-    }
-    Ok(Json(json!({ "message": "Session ended" })))
+    let response = Json(json!({ "ok": true })).into_response();
+    Ok(with_refresh_cookie(response, None))
 }
 
 pub fn routes() -> axum::Router<Arc<AppState>> {

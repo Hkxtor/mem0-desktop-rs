@@ -196,19 +196,48 @@ fn resolve_api_key(store: &StateStore, key: &str) -> Result<Option<String>, ApiE
 }
 
 /// The auth middleware. Attaches an `AuthContext` as a request extension.
+/// Paths that answer without a credential.
+///
+/// The Python server has no global auth middleware — it puts `Depends(require_auth)` on the
+/// routes that need a user, which leaves the dashboard assets and the sign-in endpoints
+/// open. A single global middleware cannot express that, so the exemption has to be spelled
+/// out here. Getting it wrong is not a subtle bug: with authentication enabled and this list
+/// too short, the login page itself answers `401`, so there is no way into the app at all.
+fn public_path(path: &str) -> bool {
+    const EXACT: &[&str] = &[
+        // liveness, and the dashboard's own entry points
+        "/health",
+        "/",
+        "/login",
+        "/setup",
+        "/404",
+        // sign-in: these are what a caller reaches for *because* it has no credential
+        "/auth/setup-status",
+        "/auth/register",
+        "/auth/login",
+        "/auth/refresh",
+        "/auth/session",
+    ];
+    // Dashboard assets. A page cannot present a token before its JavaScript has loaded.
+    const PREFIXES: &[&str] = &["/dashboard", "/_next", "/fonts", "/images", "/icons"];
+    EXACT.contains(&path)
+        || PREFIXES.iter().any(|p| path.starts_with(p))
+        // Next's static export ships each page's RSC payload as `<route>.txt` next to it.
+        || path.ends_with(".txt")
+}
+
 pub async fn auth_middleware(
     State(state): State<Arc<AppState>>,
     mut request: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
-    // /health is a liveness probe and stays unauthenticated (Python marks it
-    // include_in_schema=False but still requires auth when enabled; here we keep it
-    // open so orchestrators can probe without credentials — matches the golden which
-    // hit it under AUTH_DISABLED).
     let slot = request.extensions().get::<AuthTypeSlot>().cloned();
-    if request.uri().path() == "/health" {
+    let path = request.uri().path().to_string();
+    if public_path(&path) {
         if let Some(slot) = &slot {
-            slot.set(AuthType::Disabled.as_str());
+            // `/auth/session` authenticates with its own cookie, which the handler reads;
+            // the rest present nothing at all.
+            slot.set("none");
         }
         request.extensions_mut().insert(AuthContext {
             user_id: None,

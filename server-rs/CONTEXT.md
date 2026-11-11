@@ -12,6 +12,13 @@ Glossary only. No implementation details, no decisions (those go to ADRs if they
 - **Classification（分类）** — mapping a memory's text to a subset of the 15 preset categories via the SystemOne model. Best-effort: if the call fails, the memory is still stored with empty categories; the failure is recorded as `last_error` and surfaced in the UI rather than only logged.
 - **Unclassified（未分类）** — a memory whose `categories` array is empty. The term deliberately does not distinguish "never classified" from "classified, and the model found no matching category": no attempt is recorded. It means "carries no category right now", so any unclassified memory is always eligible for another classification run.
 
+## Access
+
+- **Access token（访问令牌）** — short-lived bearer token (1 h) minted by `/auth/login`. The dashboard keeps it in memory only, so it disappears on reload by design and is replaced from the refresh cookie.
+- **Refresh token（刷新令牌）** — 30-day credential exchanged for a new access token. Lives in an `HttpOnly` cookie the page cannot read, so a script injected into the dashboard cannot exfiltrate a month of access. Single use: each exchange revokes the token it consumed and returns a replacement, which the cookie must be updated to or the *next* refresh fails.
+- **Session（会话）** — the browser's ability to obtain an access token without a password. Held entirely by the refresh cookie; the server stores no session object. Ends when the cookie is cleared (`DELETE /auth/session`) or its token is exchanged and the replacement is lost.
+- **Public path（公开路径）** — a route that answers without a credential: the dashboard's own files and the sign-in endpoints (`/auth/setup-status`, `/auth/register`, `/auth/login`, `/auth/refresh`, `/auth/session`). Everything that touches a user's data is not. A path missing from this set is not a subtle bug — with authentication enabled the login page itself would answer `401`.
+
 ## Records
 
 Three separate records answer three different questions. None of them is a superset of another.
