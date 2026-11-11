@@ -66,7 +66,7 @@ fn official_export() -> Value {
             {
                 "id": "aac45e70-56d5-4d79-9d0b-df736d7ef129",
                 "memory": "User asked the assistant to check how many memories are stored",
-                "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+                "user_id": "fixture-user",
                 "metadata": {"channel": "weixin"},
                 "created_at": "2026-11-06T18:08:56-08:00",
                 "updated_at": "2026-11-06T18:09:20.014941-08:00"
