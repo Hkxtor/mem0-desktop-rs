@@ -18,9 +18,12 @@ const SKIPPED_PATHS: &[&str] = &["/api/health", "/health", "/docs", "/redoc", "/
 
 /// Dashboard assets are not API traffic; reading the statistics must not add to them,
 /// so `/requests` and `/analytics` are excluded too (Python's SKIPPED_REQUEST_LOG_PREFIXES).
+/// `/logs` joins them for the same reason: the Logs page reads the request log, and a page
+/// left open would otherwise fill the table with reads of itself.
 const SKIPPED_PREFIXES: &[&str] = &[
     "/requests",
     "/analytics",
+    "/logs",
     "/_next",
     "/fonts",
     "/images",

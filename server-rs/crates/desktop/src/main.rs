@@ -62,6 +62,11 @@ fn main() {
         return;
     }
 
+    // The shell logs into the same file as the server. Windows runs this binary as a GUI
+    // subsystem executable, so stderr is discarded on a double-click: the file is the only
+    // place a tray or single-instance problem can be seen.
+    mem0_desktop_rs::logging::init(&mem0_desktop_rs::data_dir());
+
     // Bootstrap outside the tauri event loop: data dir, lock, server.
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
     let (url, data_dir, lock_guard) = rt.block_on(async {
@@ -80,6 +85,11 @@ fn main() {
                 eprintln!(
                     "mem0-desktop is already running at {} (pid {}); asking it to focus",
                     owner.url, owner.pid
+                );
+                mem0_desktop_rs::logging::info(
+                    "shell",
+                    "second instance asked the owner to focus",
+                    serde_json::json!({"owner_pid": owner.pid, "owner_url": owner.url}),
                 );
                 let _ = lock::request_focus(&owner.url).await;
                 std::process::exit(0);
@@ -100,6 +110,11 @@ fn main() {
             "mem0-desktop listening on http://{addr} (data: {})",
             dir.display()
         );
+        mem0_desktop_rs::logging::info(
+            "shell",
+            "window will load the loopback server",
+            serde_json::json!({"url": format!("http://{addr}/"), "pid": pid}),
+        );
         // The server task must outlive this block_on; forget the handle so the
         // runtime keeps it alive (the process exits via tauri's run loop).
         std::mem::forget(handle);
@@ -112,6 +127,11 @@ fn main() {
             rt_handle.spawn(async move {
                 wait_for_terminate_signal().await;
                 eprintln!("signal received: removing lock and exiting");
+                mem0_desktop_rs::logging::info(
+                    "shell",
+                    "termination signal; removing lock and exiting",
+                    serde_json::json!({}),
+                );
                 let _ = std::fs::remove_file(&lock_path);
                 std::process::exit(0);
             });
@@ -175,6 +195,11 @@ fn main() {
                 tray = tray.icon(icon.clone());
             }
             let _tray = tray.build(app)?;
+            mem0_desktop_rs::logging::info(
+                "shell",
+                "tray icon created",
+                serde_json::json!({"start_hidden": start_hidden}),
+            );
 
             // Forward focus requests (from a second instance hitting
             // POST /internal/focus) to the window.
@@ -197,6 +222,11 @@ fn main() {
                 while close_rx.recv().await.is_ok() {
                     if let Some(w) = fh.get_webview_window("main") {
                         eprintln!("closing window on request");
+                        mem0_desktop_rs::logging::info(
+                            "shell",
+                            "closing window on request",
+                            serde_json::json!({}),
+                        );
                         if let Err(e) = w.close() {
                             eprintln!("window close failed: {e}");
                         }
@@ -246,11 +276,21 @@ fn main() {
                 // Re-read: the toggle may have been flipped since launch.
                 let keep_in_tray = DesktopSettings::load(&prefs_dir).minimize_to_tray;
                 eprintln!("close requested (keep_in_tray={keep_in_tray})");
+                mem0_desktop_rs::logging::info(
+                    "shell",
+                    "window close requested",
+                    serde_json::json!({"keep_in_tray": keep_in_tray}),
+                );
                 if keep_in_tray {
                     // Hide instead of quitting; Quit in the tray menu is the way out.
                     api.prevent_close();
                     let _ = window.hide();
                     eprintln!("window hidden to tray (close-to-tray is on)");
+                    mem0_desktop_rs::logging::info(
+                        "shell",
+                        "window hidden to tray",
+                        serde_json::json!({}),
+                    );
                 } else {
                     // Closing the window quits the whole app (server + lock release).
                     window.app_handle().exit(0);
@@ -262,6 +302,11 @@ fn main() {
         .run(move |_app_handle, event| match event {
             tauri::RunEvent::ExitRequested { .. } => {
                 eprintln!("exit requested: removing lock {}", lock_path.display());
+                mem0_desktop_rs::logging::info(
+                    "shell",
+                    "exiting; removing lock",
+                    serde_json::json!({"lock": lock_path.display().to_string()}),
+                );
                 let _ = std::fs::remove_file(&lock_path);
             }
             tauri::RunEvent::Exit => {

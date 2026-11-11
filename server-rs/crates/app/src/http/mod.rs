@@ -9,6 +9,7 @@ pub mod routes_auth;
 pub mod routes_config;
 pub mod routes_diagnostics;
 pub mod routes_health;
+pub mod routes_logs;
 pub mod routes_memories;
 pub mod routes_misc;
 pub mod routes_systemone;
@@ -177,6 +178,11 @@ pub fn build_router_arc(state: Arc<AppState>) -> Router {
         .route(
             "/diagnostics/storage",
             axum::routing::get(routes_diagnostics::storage_diagnostics),
+        )
+        .route("/logs/app", axum::routing::get(routes_logs::app_log))
+        .route(
+            "/logs/requests",
+            axum::routing::get(routes_logs::request_log),
         );
     public
         .merge(protected)

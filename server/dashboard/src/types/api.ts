@@ -67,6 +67,18 @@ export interface ApiRequestLog {
   method?: string;
   path?: string;
   auth_type?: string;
+  /** Why a successful operation produced nothing: `no_memories`, `provider_error`,
+   *  `unparsed_answer`. Null for the ordinary case. */
+  reason?: string | null;
+}
+
+/** One line of the application log (JSONL in the data directory). */
+export interface ApiAppLogLine {
+  ts: string;
+  level: "info" | "warn" | "error";
+  target: string;
+  msg: string;
+  fields?: Record<string, unknown>;
 }
 
 export type EntityType = "user" | "agent" | "run";

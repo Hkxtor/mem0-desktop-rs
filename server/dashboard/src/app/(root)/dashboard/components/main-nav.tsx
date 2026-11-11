@@ -8,6 +8,7 @@ import {
   FolderInput,
   GalleryVerticalEnd,
   KeyRound,
+  ScrollText,
   Settings,
   Tags,
   Users,
@@ -170,6 +171,14 @@ export function MainNav({
                     url: "/dashboard/settings",
                     icon: Settings,
                     active: pathname === "/dashboard/settings",
+                  },
+                  {
+                    // Operational, not analytical: it belongs with the other pages you
+                    // open when something needs explaining.
+                    title: "日志",
+                    url: "/dashboard/logs",
+                    icon: ScrollText,
+                    active: pathname === "/dashboard/logs",
                   },
                 ].map((item) => (
                   <SidebarMenuItem key={item.title}>

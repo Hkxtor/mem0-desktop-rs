@@ -44,10 +44,13 @@ fn persist(
     results: Option<i64>,
     status: i64,
     latency_ms: f64,
+    reason: Option<&str>,
 ) {
     // Logging must never turn a successful memory call into an error: this is bookkeeping.
     if let Ok(store) = state.store.lock() {
-        if let Err(e) = store.log_memory_operation(operation, detail, results, status, latency_ms) {
+        if let Err(e) =
+            store.log_memory_operation(operation, detail, results, status, latency_ms, reason)
+        {
             eprintln!("failed to record memory operation: {e}");
         }
     }
@@ -70,6 +73,38 @@ where
     Fut: std::future::Future<Output = Result<T, ApiError>>,
     C: Fn(&T) -> Option<i64>,
 {
+    record_with_reason(
+        state,
+        operation,
+        detail,
+        started,
+        results_of,
+        |_| None,
+        body,
+    )
+    .await
+}
+
+/// [`record`], plus a short explanation of an otherwise inexplicable result.
+///
+/// Only `ADD` needs it today: a 200 with zero results is either "the message said nothing
+/// worth remembering" or "the model returned an error the pipeline swallowed", and the
+/// Requests page should not make the operator guess which.
+pub async fn record_with_reason<T, F, Fut, C, R>(
+    state: Arc<AppState>,
+    operation: &'static str,
+    detail: String,
+    started: Instant,
+    results_of: C,
+    reason_of: R,
+    body: F,
+) -> Result<T, ApiError>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<T, ApiError>>,
+    C: Fn(&T) -> Option<i64>,
+    R: Fn(&T) -> Option<String>,
+{
     let outcome = body().await;
     let latency_ms = started.elapsed().as_secs_f64() * 1000.0;
     match &outcome {
@@ -80,6 +115,7 @@ where
             results_of(payload),
             200,
             latency_ms,
+            reason_of(payload).as_deref(),
         ),
         Err(e) => persist(
             &state,
@@ -88,6 +124,7 @@ where
             None,
             e.status.as_u16() as i64,
             latency_ms,
+            None,
         ),
     }
     outcome

@@ -119,7 +119,18 @@ pub fn persist_config(state: &AppState, config: &Value) -> ApiResult<()> {
 /// `/health` and `/setup` reachable so the credentials can be fixed (the same reason
 /// Python records `_initialization_error` instead of raising).
 pub async fn restore_persisted_runtime(state: &AppState) {
-    let _ = memory_or_restore(state).await;
+    match memory_or_restore(state).await {
+        Some(_) => crate::logging::info(
+            "config",
+            "runtime restored from config.json",
+            serde_json::json!({}),
+        ),
+        None => crate::logging::info(
+            "config",
+            "no usable persisted configuration; setup still owns the first run",
+            serde_json::json!({}),
+        ),
+    }
 }
 
 /// The configured runtime, rebuilding it from the persisted config when the slot is empty.
@@ -148,6 +159,7 @@ pub async fn memory_or_restore(state: &AppState) -> Option<std::sync::Arc<mem0::
             if let Ok(mut err) = state.config_error.lock() {
                 *err = None;
             }
+            crate::logging::info("config", "runtime built", serde_json::json!({}));
             slot.clone()
         }
         Err(e) => {
@@ -156,6 +168,11 @@ pub async fn memory_or_restore(state: &AppState) -> Option<std::sync::Arc<mem0::
             }
             // Portable-app rule: an unusable config must not take the process down —
             // /health and /setup have to stay reachable so the credentials can be fixed.
+            crate::logging::error(
+                "config",
+                "runtime build failed; memory operations are unavailable",
+                serde_json::json!({"error": e.to_string()}),
+            );
             eprintln!(
                 "mem0 is running without a usable runtime: {e}. Configure a provider to \
                  enable memory operations."
@@ -263,11 +280,23 @@ pub async fn set_config(
 
     let previous = load_persisted_config(&state);
     let next = crate::memory_bridge::compute_updated_config(&previous, update);
+    let providers = serde_json::json!({
+        "llm": next.get("llm").and_then(|v| v.get("provider")).cloned(),
+        "embedder": next.get("embedder").and_then(|v| v.get("provider")).cloned(),
+        "vector_store": next.get("vector_store").and_then(|v| v.get("provider")).cloned(),
+        "systemone": next.get("systemone").and_then(|v| v.get("provider")).cloned(),
+    });
 
     // Build the new runtime BEFORE touching the old one: a failed build must leave the
     // working config intact (server_state.py::update_config semantics).
-    let new_memory = crate::memory_bridge::build_memory(&next, &state.data_dir)
-        .map_err(|e| ApiError::bad_request(format!("Configuration rejected: {e}")))?;
+    let new_memory = crate::memory_bridge::build_memory(&next, &state.data_dir).map_err(|e| {
+        crate::logging::error(
+            "config",
+            "configuration rejected",
+            serde_json::json!({"error": e.to_string(), "providers": providers}),
+        );
+        ApiError::bad_request(format!("Configuration rejected: {e}"))
+    })?;
 
     {
         let mut slot = state.memory.write().await;
@@ -276,8 +305,14 @@ pub async fn set_config(
     // The category classifier follows the systemone section of the new config. A
     // broken systemone build rejects the whole update, same as a broken llm build —
     // a half-applied config would classify with a stale model or not at all.
-    let classifier = crate::categories::build_classifier(&next)
-        .map_err(|e| ApiError::bad_request(format!("Configuration rejected: {e}")))?;
+    let classifier = crate::categories::build_classifier(&next).map_err(|e| {
+        crate::logging::error(
+            "config",
+            "systemone configuration rejected",
+            serde_json::json!({"error": e.to_string()}),
+        );
+        ApiError::bad_request(format!("Configuration rejected: {e}"))
+    })?;
     {
         let mut slot = state.systemone.write().await;
         *slot = classifier.map(Arc::new);
@@ -286,6 +321,11 @@ pub async fn set_config(
     // page would keep showing an error from a model that is no longer configured.
     crate::http::routes_systemone::note_classify_result(&state, None);
     persist_config(&state, &next)?;
+    crate::logging::info(
+        "config",
+        "configuration applied",
+        serde_json::json!({"providers": providers}),
+    );
     Ok(Json(json!({ "message": "Configuration set successfully" })))
 }
 

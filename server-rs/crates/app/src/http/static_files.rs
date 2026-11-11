@@ -25,6 +25,7 @@ pub const PAGE_ROUTES: &[&str] = &[
     "dashboard/configuration",
     "dashboard/entities",
     "dashboard/export",
+    "dashboard/logs",
     "dashboard/memories",
     "dashboard/requests",
     "dashboard/settings",

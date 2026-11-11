@@ -35,6 +35,7 @@ mem0-desktop/
     ├── mem0.db        # 用户、API key、请求日志、设置（SQLite）
     ├── history.db     # 记忆变更历史（SQLite）
     ├── vectors.db     # 向量数据（sqlite-vec）
+    ├── logs/app.log   # 应用日志（JSONL，5 MB × 3 份自动轮转）
     └── app.lock       # 单实例锁（运行时存在，退出即删）
 ```
 
@@ -53,6 +54,22 @@ curl -X POST http://127.0.0.1:8888/search \
   -H 'Content-Type: application/json' \
   -d '{"query":"爱好","filters":{"user_id":"alice"}}'
 ```
+
+## 排查：添加成功但没存下记忆
+
+`POST /memories` 返回 200 但 `results` 是空数组，说明模型看过这条消息、但没抽出可记忆的内容。这不是错误——闲聊本来就不该产生记忆——但你需要知道是哪一种情况：
+
+| 情况 | 界面显示 |
+|---|---|
+| 模型回答"没有需要记住的" | 请求页结果数 `0` + 灰标「未抽出」 |
+| 模型调用失败（key 错、404、超时） | 灰标「模型调用失败」 |
+| 模型回答不是可解析的记忆列表 | 灰标「回答无法解析」 |
+
+鼠标悬停在灰标上会说明具体原因，模型的原始回答和 provider 的报错在 **dashboard → 日志 → 应用日志**（也可直接看 `data/logs/app.log`）。日志页支持按级别过滤、关键字搜索、可选自动刷新（默认关闭）和下载。
+
+日志里的 API key、`Authorization`、`X-API-Key` 等凭证在写入前一律打码；模型回答超过 2000 字符会被截断并标记 `truncated`。
+
+实体页为空是同一件事的另一面：实体是从已存记忆的 `user_id` / `agent_id` / `run_id` 推导出来的，没有记忆自然没有实体。
 
 ## 已知限制
 

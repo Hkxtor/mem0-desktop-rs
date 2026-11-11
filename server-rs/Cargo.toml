@@ -19,11 +19,11 @@ license = "Apache-2.0"
 
 [workspace.dependencies]
 # mem0-rs fork with byte-identical prompts (see .pi/research/rust-rewrite-considerations.md appendix A)
-mem0-core = { git = "https://github.com/Hkxtor/mem0-rs.git", rev = "09a3c1a" }
-mem0-vector = { git = "https://github.com/Hkxtor/mem0-rs.git", rev = "09a3c1a" }
-mem0-llm = { git = "https://github.com/Hkxtor/mem0-rs.git", rev = "09a3c1a" }
-mem0-embed = { git = "https://github.com/Hkxtor/mem0-rs.git", rev = "09a3c1a" }
-mem0 = { git = "https://github.com/Hkxtor/mem0-rs.git", rev = "09a3c1a" }
+mem0-core = { git = "https://github.com/Hkxtor/mem0-rs.git", rev = "01ab1dc" }
+mem0-vector = { git = "https://github.com/Hkxtor/mem0-rs.git", rev = "01ab1dc" }
+mem0-llm = { git = "https://github.com/Hkxtor/mem0-rs.git", rev = "01ab1dc" }
+mem0-embed = { git = "https://github.com/Hkxtor/mem0-rs.git", rev = "01ab1dc" }
+mem0 = { git = "https://github.com/Hkxtor/mem0-rs.git", rev = "01ab1dc" }
 
 # storage
 rusqlite = { version = "0.31", features = ["bundled"] }

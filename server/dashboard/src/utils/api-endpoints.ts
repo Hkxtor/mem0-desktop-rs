@@ -46,6 +46,11 @@ export const REQUEST_ENDPOINTS = {
   BASE: "/requests",
 } as const;
 
+export const LOG_ENDPOINTS = {
+  APP: "/logs/app",
+  REQUESTS: "/logs/requests",
+} as const;
+
 export const EXPORT_ENDPOINTS = {
   EXPORT: "/export",
   IMPORT: "/import",
