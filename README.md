@@ -48,4 +48,11 @@ Data lives in `./data/` next to the binary (override with `MEM0_DATA_DIR`).
 cd server-rs && cargo test --workspace
 ```
 
-License: Apache-2.0 (see LICENSE).
+## Credit
+
+The memory pipeline, prompts and the dashboard are derived from
+[mem0](https://github.com/mem0ai/mem0) (Apache-2.0). The Rust port of that pipeline lives in
+[Hkxtor/mem0-rs](https://github.com/Hkxtor/mem0-rs), pinned by revision in
+`server-rs/Cargo.toml`. This repository is the desktop packaging on top of both.
+
+Licensed under the Apache License 2.0 — see [LICENSE](LICENSE).
