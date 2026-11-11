@@ -1,0 +1,7 @@
+{
+  "method": "POST",
+  "path": "/import",
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"imported\":1,\"skipped\":0,\"total_in_file\":1,\"failures\":[]}"
+}

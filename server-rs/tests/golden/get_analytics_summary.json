@@ -1,0 +1,7 @@
+{
+  "method": "GET",
+  "path": "/analytics/summary",
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"window_days\":12,\"operations\":14,\"avg_latency_ms\":<float>,\"success_rate\":<float>,\"daily\":[{\"date\":\"<date>\",\"count\":0},{\"date\":\"<date>\",\"count\":0},{\"date\":\"<date>\",\"count\":0},{\"date\":\"<date>\",\"count\":0},{\"date\":\"<date>\",\"count\":0},{\"date\":\"<date>\",\"count\":0},{\"date\":\"<date>\",\"count\":0},{\"date\":\"<date>\",\"count\":0},{\"date\":\"<date>\",\"count\":0},{\"date\":\"<date>\",\"count\":0},{\"date\":\"<date>\",\"count\":0},{\"date\":\"<date>\",\"count\":14}],\"top_paths\":[{\"path\":\"/v1/memories/golden-memory-id/\",\"count\":1},{\"path\":\"/v1/memories/golden-memory-id\",\"count\":1},{\"path\":\"/v1/memories/\",\"count\":1},{\"path\":\"/v1/memories\",\"count\":1},{\"path\":\"/memories/golden-memory-id\",\"count\":1}]}"
+}

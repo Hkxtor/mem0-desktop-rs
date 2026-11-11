@@ -1,0 +1,7 @@
+{
+  "method": "DELETE",
+  "path": "/entities/{entity_type}/{entity_id}",
+  "status": 422,
+  "content_type": "application/json",
+  "body": "{\"detail\":[{\"type\":\"literal_error\",\"loc\":[\"path\",\"entity_type\"],\"msg\":\"Input should be 'user', 'agent' or 'run'\",\"input\":\"person\",\"ctx\":{\"expected\":\"'user', 'agent' or 'run'\"}}]}"
+}

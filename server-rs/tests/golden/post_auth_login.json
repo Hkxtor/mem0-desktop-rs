@@ -1,0 +1,7 @@
+{
+  "method": "POST",
+  "path": "/auth/login",
+  "status": 401,
+  "content_type": "application/json",
+  "body": "{\"detail\":\"Invalid email or password.\"}"
+}

@@ -1,0 +1,7 @@
+{
+  "method": "POST",
+  "path": "/auth/register",
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"access_token\":\"<jwt>\",\"refresh_token\":\"<jwt>\",\"token_type\":\"bearer\"}"
+}

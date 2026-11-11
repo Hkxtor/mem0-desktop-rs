@@ -1,0 +1,52 @@
+# Rust workspace for the mem0-desktop rewrite (PRD: .pi/prds/rust-rewrite-mem0rs-sqlitevec.prd.md)
+#
+# M0 pins the mem0-rs fork (branch `fidelity-fixes`). It carries our fidelity fixes:
+# serde_json preserve_order, the full 8-rule Language Requirement, py_json_dumps
+# matching Python's json.dumps separators, use_input_language threaded through
+# MemoryConfig, the anthropic_base_url/gemini_base_url config keys, embedder dims
+# overwriting vector_store dims, and Gemini model names qualified with `models/`
+# the way the google-genai SDK does it.
+#
+# The fork is public (Hkxtor/mem0-rs) so CI can clone it with GITHUB_TOKEN.
+
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2021"
+license = "Apache-2.0"
+
+[workspace.dependencies]
+# mem0-rs fork with byte-identical prompts (see .pi/research/rust-rewrite-considerations.md appendix A)
+mem0-core = { git = "https://github.com/Hkxtor/mem0-rs.git", rev = "09a3c1a" }
+mem0-vector = { git = "https://github.com/Hkxtor/mem0-rs.git", rev = "09a3c1a" }
+mem0-llm = { git = "https://github.com/Hkxtor/mem0-rs.git", rev = "09a3c1a" }
+mem0-embed = { git = "https://github.com/Hkxtor/mem0-rs.git", rev = "09a3c1a" }
+mem0 = { git = "https://github.com/Hkxtor/mem0-rs.git", rev = "09a3c1a" }
+
+# storage
+rusqlite = { version = "0.31", features = ["bundled"] }
+sqlite-vec = { path = "vendor/sqlite-vec" }  # vendored: crates.io pkg misses sibling .c files, see vendor/sqlite-vec/README.md
+
+# http
+axum = { version = "0.8", features = ["macros"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs", "cors", "trace", "limit"] }
+
+# misc
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+async-trait = "0.1"
+jsonwebtoken = "9"
+argon2 = "0.5"
+bcrypt = "0.15"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+governor = "0.6"
+once_cell = "1"
+base64 = "0.22"
+sha2 = "0.10"
+hex = "0.4"
+rand = "0.8"

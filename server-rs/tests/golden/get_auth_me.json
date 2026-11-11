@@ -1,0 +1,7 @@
+{
+  "method": "GET",
+  "path": "/auth/me",
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"id\":\"<uuid>\",\"name\":\"Local\",\"email\":\"\",\"role\":\"admin\",\"created_at\":\"<datetime>\"}"
+}

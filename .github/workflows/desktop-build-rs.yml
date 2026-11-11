@@ -1,0 +1,222 @@
+# Builds the RUST portable desktop app (Tauri shell + axum server) for all three platforms.
+#
+# The dashboard export is embedded into the single binary at build time
+# (tauri.conf.json frontendDist), so the artifact is one executable + README, no
+# Python, no Node, no database at runtime. PyInstaller cannot cross-compile and
+# neither can Tauri, so each platform artifact comes from a runner on that platform.
+#
+# Smoke tests run the binary with --headless (no display needed); the Linux job
+# additionally starts it under xvfb to prove the windowed path boots.
+#
+# Upstream note: this file lives in .github/workflows/ for a private build mirror;
+# the upstream repository requires maintainer approval for changes there.
+name: desktop-build-rs
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'server-rs/**'
+      - 'server/dashboard/**'
+      - '.github/workflows/desktop-build-rs.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: mem0-desktop-linux-x64-rs.tar.gz
+          - os: windows-latest
+            artifact: mem0-desktop-windows-x64-rs.tar.gz
+          - os: macos-latest
+            artifact: mem0-desktop-macos-arm64-rs.tar.gz
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+          cache-dependency-path: server/dashboard/pnpm-lock.yaml
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Tauri Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            xvfb curl
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server-rs
+
+      - name: Build dashboard export
+        shell: bash
+        env:
+          MEM0_DASHBOARD_OUTPUT: export
+        run: |
+          cd server/dashboard
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Build (cargo tauri)
+        shell: bash
+        run: server-rs/scripts/build_desktop_rs.sh --skip-dashboard-build
+
+      # The tray icon is built in code (it needs a menu). A `trayIcon` block in the
+      # config would add a second, inert icon to the notification area.
+      - name: Assert a single tray icon
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -q '"trayIcon"' server-rs/crates/desktop/tauri.conf.json; then
+            echo "tauri.conf.json declares app.trayIcon -> a second, non-interactive tray icon"
+            exit 1
+          fi
+          echo "single tray icon: built in code only"
+
+      # Headless smoke: works on every OS without a display.
+      - name: Smoke test (headless)
+        shell: bash
+        run: |
+          set -euo pipefail
+          PORT=8991
+          if [ "${{ runner.os }}" = "Windows" ]; then PORT=8991; fi
+          DATA="$RUNNER_TEMP/mem0-rs-smoke"
+          mkdir -p "$DATA"
+          MEM0_DATA_DIR="$DATA" MEM0_PORT=$PORT MEM0_TELEMETRY=false AUTH_DISABLED=true \
+            ./dist/../server-rs/target/release/mem0-desktop --headless > server-rs.log 2>&1 &
+          server_pid=$!
+          trap 'kill $server_pid 2>/dev/null || true' EXIT
+          for _ in $(seq 1 60); do
+            curl -fsS "http://127.0.0.1:$PORT/health" > /dev/null 2>&1 && break
+            sleep 1
+          done
+          for path in /health / /setup /dashboard/memories/ /v1/ping/; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT$path" || echo 000)
+            echo "$path -> $code"
+            [ "$code" = "200" ] || { cat server-rs.log; exit 1; }
+          done
+          # Packaged-mode check: the exe copied ALONE into an isolated dir (no
+          # source checkout on disk, as on an installed machine) must still
+          # serve the dashboard from the copy embedded in the binary.
+          PKG="$RUNNER_TEMP/pkg-only"
+          mkdir -p "$PKG"
+          cp ./server-rs/target/release/mem0-desktop "$PKG/mem0-desktop"
+          PKG_DATA="$RUNNER_TEMP/pkg-data"
+          mkdir -p "$PKG_DATA"
+          MEM0_DATA_DIR="$PKG_DATA" MEM0_PORT=8992 MEM0_TELEMETRY=false AUTH_DISABLED=true \
+            "$PKG/mem0-desktop" --headless > "$RUNNER_TEMP/pkg.log" 2>&1 &
+          pkg_pid=$!
+          trap 'kill $server_pid $pkg_pid 2>/dev/null || true' EXIT
+          for _ in $(seq 1 60); do
+            curl -fsS "http://127.0.0.1:8992/health" > /dev/null 2>&1 && break
+            sleep 1
+          done
+          for path in / /setup /dashboard/memories/; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:8992$path" || echo 000)
+            echo "packaged $path -> $code"
+            [ "$code" = "200" ] || { cat "$RUNNER_TEMP/pkg.log"; exit 1; }
+          done
+          curl -fsS "http://127.0.0.1:8992/" | grep -q '<html' || { echo "packaged / is not HTML"; exit 1; }
+          kill $pkg_pid 2>/dev/null || true
+          # configure with the mock runtime, then add + search proves the whole pipeline
+          curl -fsS -X POST "http://127.0.0.1:$PORT/configure" -H 'Content-Type: application/json' -d \
+            '{"llm":{"provider":"mock","config":{}},"embedder":{"provider":"mock","config":{"embedding_dims":10}},"vector_store":{"provider":"sqlite-vec","config":{"collection_name":"mem0","embedding_model_dims":10}}}' > /dev/null
+          curl -fsS -X POST "http://127.0.0.1:$PORT/memories" -H 'Content-Type: application/json' -d \
+            '{"messages":[{"role":"user","content":"ci smoke"}],"user_id":"ci","infer":false}' > /dev/null
+          n=$(curl -sS -X POST "http://127.0.0.1:$PORT/search" -H 'Content-Type: application/json' -d \
+            '{"query":"smoke","filters":{"user_id":"ci"},"top_k":3}' | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["results"]))')
+          echo "search results: $n"
+          [ "$n" -ge 1 ] || { cat server-rs.log; exit 1; }
+
+          # Desktop preferences. "Start at login" is a real HKCU Run value, so on
+          # Windows this checks what the app wrote to the registry, not what the API
+          # echoed back.
+          curl -fsS -X PUT "http://127.0.0.1:$PORT/settings/desktop" -H 'Content-Type: application/json' \
+            -d '{"autostart":true,"start_silent":true}' | tee desktop-prefs.json
+          grep -q '"start_silent":true' desktop-prefs.json || { echo "start_silent not saved"; exit 1; }
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            grep -q '"autostart":true' desktop-prefs.json || { echo "autostart not saved"; exit 1; }
+            # PowerShell, not reg.exe: git-bash rewrites the /v flag into a path, which
+            # made reg query answer "Invalid syntax" and look like a missing entry.
+            run_entry() {
+              powershell -NoProfile -NonInteractive -Command \
+                "(Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue).'mem0-desktop'" \
+                | tr -d '\r'
+            }
+            value=$(run_entry)
+            echo "run entry: $value"
+            echo "$value" | grep -qi 'mem0-desktop' || { echo "login entry missing"; exit 1; }
+            echo "$value" | grep -qi -- '--silent' || { echo "login entry is not silent"; exit 1; }
+            curl -fsS -X PUT "http://127.0.0.1:$PORT/settings/desktop" -H 'Content-Type: application/json' \
+              -d '{"autostart":false}' > /dev/null
+            value=$(run_entry)
+            echo "run entry after disable: [$value]"
+            [ -z "$value" ] || { echo "login entry was not removed"; exit 1; }
+            echo "login entry added and removed"
+          fi
+
+      # Windowed smoke on Linux only: xvfb provides a display; prove the GUI process
+      # boots, publishes its lock, and serves.
+      - name: Smoke test (windowed, xvfb)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          DATA="$RUNNER_TEMP/mem0-rs-gui"
+          mkdir -p "$DATA"
+          xvfb-run -a env MEM0_DATA_DIR="$DATA" MEM0_TELEMETRY=false AUTH_DISABLED=true \
+            ./server-rs/target/release/mem0-desktop > gui.log 2>&1 &
+          gui_pid=$!
+          trap 'kill $gui_pid 2>/dev/null || true' EXIT
+          for _ in $(seq 1 60); do
+            [ -f "$DATA/app.lock" ] && break
+            sleep 1
+          done
+          URL=$(python3 -c "import json;print(json.load(open('$DATA/app.lock'))['url'])")
+          PORT=${URL##*:}; PORT=${PORT%/}
+          echo "windowed instance at $URL"
+          for _ in $(seq 1 60); do
+            curl -fsS "http://127.0.0.1:$PORT/health" > /dev/null 2>&1 && break
+            sleep 1
+          done
+          code=$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/")
+          echo "/ -> $code"
+          [ "$code" = "200" ] || { cat gui.log; exit 1; }
+          # second instance must detect the owner and exit 0
+          set +e
+          MEM0_DATA_DIR="$DATA" MEM0_TELEMETRY=false AUTH_DISABLED=true \
+            timeout 15 ./server-rs/target/release/mem0-desktop > second.log 2>&1
+          rc=$?
+          set -e
+          echo "second instance rc=$rc"
+          [ "$rc" = "0" ] || { cat second.log; exit 1; }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
+          retention-days: 30

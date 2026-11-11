@@ -1,0 +1,7 @@
+{
+  "method": "DELETE",
+  "path": "/v1/memories/{memory_id}/",
+  "status": 404,
+  "content_type": "application/json",
+  "body": "{\"detail\":\"Memory with id golden-memory-id not found\"}"
+}

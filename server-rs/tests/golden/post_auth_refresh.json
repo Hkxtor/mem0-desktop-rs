@@ -1,0 +1,7 @@
+{
+  "method": "POST",
+  "path": "/auth/refresh",
+  "status": 422,
+  "content_type": "application/json",
+  "body": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\"],\"msg\":\"Field required\",\"input\":null}]}"
+}

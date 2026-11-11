@@ -1,0 +1,7 @@
+{
+  "method": "GET",
+  "path": "/v1/entities/",
+  "status": 200,
+  "content_type": "application/json",
+  "body": "[{\"id\":\"golden\",\"type\":\"user\",\"total_memories\":2,\"created_at\":\"<datetime>\",\"updated_at\":\"<datetime>\"}]"
+}

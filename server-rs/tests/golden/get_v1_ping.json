@@ -1,0 +1,7 @@
+{
+  "method": "GET",
+  "path": "/v1/ping/",
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"org_id\":\"local\",\"project_id\":\"local\",\"user_email\":null,\"status\":\"ok\"}"
+}

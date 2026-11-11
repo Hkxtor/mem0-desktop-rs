@@ -1,0 +1,7 @@
+{
+  "method": "POST",
+  "path": "/memories",
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"results\":[{\"id\":\"<uuid>\",\"memory\":\"golden fact\",\"event\":\"ADD\",\"actor_id\":null,\"role\":\"user\"}]}"
+}

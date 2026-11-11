@@ -1,0 +1,1683 @@
+{
+ "memories": [
+  {
+   "id": "aac45e70-56d5-4d79-9d0b-df736d7ef129",
+   "memory": "User asked the assistant to check how many memories are currently stored in mem0",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-11-06T18:08:56-08:00",
+   "updated_at": "2026-11-06T18:09:20.014941-08:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 7,
+    "hour": 2,
+    "year": 2026,
+    "month": 11,
+    "minute": 8,
+    "quarter": 4,
+    "is_weekend": true,
+    "day_of_week": "saturday",
+    "day_of_year": 311,
+    "week_of_year": 45
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "51b705fc-ec55-4b52-9e32-4f2dd531d569",
+   "memory": "User requested research on the MemoryTax project at https://hexuan21.github.io/MemoryTax/",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-10-26T18:18:23-07:00",
+   "updated_at": "2026-10-26T18:18:43.939236-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 27,
+    "hour": 1,
+    "year": 2026,
+    "month": 10,
+    "minute": 18,
+    "quarter": 4,
+    "is_weekend": false,
+    "day_of_week": "tuesday",
+    "day_of_year": 300,
+    "week_of_year": 44
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "138fe8ba-023b-4a1d-bf99-eec9668ad6db",
+   "memory": "User requested a complete historical list of Nasdaq-100 index constituent stocks with dates from historical announcements",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "misc"
+   ],
+   "created_at": "2026-10-20T07:17:55-07:00",
+   "updated_at": "2026-10-20T07:18:16.750218-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 20,
+    "hour": 14,
+    "year": 2026,
+    "month": 10,
+    "minute": 17,
+    "quarter": 4,
+    "is_weekend": false,
+    "day_of_week": "tuesday",
+    "day_of_year": 293,
+    "week_of_year": 43
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "03ccdfc4-630b-4d7d-ad1d-2a5468483efe",
+   "memory": "User noted that the small experiment only has either four L20 units or eight 910B4 32 GB units",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-10-20T04:51:25-07:00",
+   "updated_at": "2026-10-20T04:51:48.274020-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 20,
+    "hour": 11,
+    "year": 2026,
+    "month": 10,
+    "minute": 51,
+    "quarter": 4,
+    "is_weekend": false,
+    "day_of_week": "tuesday",
+    "day_of_year": 293,
+    "week_of_year": 43
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "90370b67-3c0d-40ea-b49d-7b77e5ac9740",
+   "memory": "User shared a technical report URL (https://zhuanlan.zhihu.com/p/2095560295930508953) and two open‑source repository URLs: DeepInfer (https://github.com/deepseek-ai/DeepInfer) and deepseek‑recipe (https://github.com/deepseek-ai/deepseek-recipe), indicating they will study the materials carefully",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-10-20T04:08:12-07:00",
+   "updated_at": "2026-10-20T04:08:36.327468-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 20,
+    "hour": 11,
+    "year": 2026,
+    "month": 10,
+    "minute": 8,
+    "quarter": 4,
+    "is_weekend": false,
+    "day_of_week": "tuesday",
+    "day_of_year": 293,
+    "week_of_year": 43
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "b21e7a5f-3ec0-47e6-8cd3-558c76feb341",
+   "memory": "User requested research on the GitHub project Bring-AI/JevNext",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-10-11T07:45:44-07:00",
+   "updated_at": "2026-10-11T07:46:34.926463-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 11,
+    "hour": 14,
+    "year": 2026,
+    "month": 10,
+    "minute": 45,
+    "quarter": 4,
+    "is_weekend": true,
+    "day_of_week": "sunday",
+    "day_of_year": 284,
+    "week_of_year": 41
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "2891e327-4355-4e93-bb61-ed964bbf717c",
+   "memory": "User requested research on the GitHub project Loopera-ai/loopera",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-10-07T02:08:24-07:00",
+   "updated_at": "2026-10-07T02:09:06.027856-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 7,
+    "hour": 9,
+    "year": 2026,
+    "month": 10,
+    "minute": 8,
+    "quarter": 4,
+    "is_weekend": false,
+    "day_of_week": "wednesday",
+    "day_of_year": 280,
+    "week_of_year": 41
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "f4e0eb9a-d5d1-4291-9606-80bdc945dc96",
+   "memory": "Assistant described the CLM head as a pure MLP (Linear→GELU→…→Linear with optional LayerNorm/residual) using only torch_npu operators, resulting in very low compatibility risk on NPU.\n\n**attributed_to**: \"assistant\"",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-09-25T02:24:13-07:00",
+   "updated_at": "2026-09-25T02:28:51.950029-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 25,
+    "hour": 9,
+    "year": 2026,
+    "month": 9,
+    "minute": 24,
+    "quarter": 3,
+    "is_weekend": false,
+    "day_of_week": "friday",
+    "day_of_year": 268,
+    "week_of_year": 39
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "ea865791-d01f-4676-aaab-c57f6bb53796",
+   "memory": "Assistant explained that training the CLM model's 20 M‑parameter head on a 910B machine is straightforward and poses almost no obstacles.\n\n**attributed_to**: \"assistant\"",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-09-25T02:24:13-07:00",
+   "updated_at": "2026-09-25T02:28:51.950029-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 25,
+    "hour": 9,
+    "year": 2026,
+    "month": 9,
+    "minute": 24,
+    "quarter": 3,
+    "is_weekend": false,
+    "day_of_week": "friday",
+    "day_of_year": 268,
+    "week_of_year": 39
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "e40acf81-ac48-4d6c-b9f2-f3443972472e",
+   "memory": "Assistant noted that the finetune.py script selects the device with `torch.device(\"cuda:N\" if torch.cuda.is_available() else \"cpu\")`, which on a 910B system defaults to CPU because CUDA is unavailable.\n\n**attributed_to**: \"assistant\"",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-09-25T02:24:13-07:00",
+   "updated_at": "2026-09-25T02:28:51.950029-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 25,
+    "hour": 9,
+    "year": 2026,
+    "month": 9,
+    "minute": 24,
+    "quarter": 3,
+    "is_weekend": false,
+    "day_of_week": "friday",
+    "day_of_year": 268,
+    "week_of_year": 39
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "984f6cee-0c49-491c-baa7-869eff922b48",
+   "memory": "Assistant added that even without code changes, the small size of the head and cache vectors allows training on the CPU of a 910B machine.\n\n**attributed_to**: \"assistant\"",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-09-25T02:24:13-07:00",
+   "updated_at": "2026-09-25T02:28:51.950029-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 25,
+    "hour": 9,
+    "year": 2026,
+    "month": 9,
+    "minute": 24,
+    "quarter": 3,
+    "is_weekend": false,
+    "day_of_week": "friday",
+    "day_of_year": 268,
+    "week_of_year": 39
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "8b23f663-35e6-4615-a5ce-b63e82e5b6a2",
+   "memory": "Assistant stated that enabling NPU execution on 910B requires adding a few lines (import torch_npu and an NPU branch) to the code.\n\n**attributed_to**: \"assistant\"",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-09-25T02:24:13-07:00",
+   "updated_at": "2026-09-25T02:28:51.950029-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 25,
+    "hour": 9,
+    "year": 2026,
+    "month": 9,
+    "minute": 24,
+    "quarter": 3,
+    "is_weekend": false,
+    "day_of_week": "friday",
+    "day_of_year": 268,
+    "week_of_year": 39
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "6dc89cbc-9695-48f1-950c-8e9cb7e11334",
+   "memory": "Assistant described the required private dataset format for CLM's 'choice' task: each JSON line must include an \"id\", a \"state\" object containing \"subject\" and \"body\" fields, and a \"questions\" object where each entry specifies a \"type\" (e.g., \"choice\") and \"instructions\" such as the decision prompt.",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-09-25T01:54:03-07:00",
+   "updated_at": "2026-09-25T01:54:20.969047-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 25,
+    "hour": 8,
+    "year": 2026,
+    "month": 9,
+    "minute": 54,
+    "quarter": 3,
+    "is_weekend": false,
+    "day_of_week": "friday",
+    "day_of_year": 268,
+    "week_of_year": 39
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "5367dd08-53fd-44f6-89ff-aa3e6903916c",
+   "memory": "Assistant provided a private training guide for CLM, stating that private training is lightweight: only the two ~20M-parameter projection heads need to be trained while the Qwen3-8B encoder remains frozen, and the entire pipeline (data preparation, embedding computation, head training, serving) runs locally with no data leaving the system, with no public pre‑training pipeline available.\n\nThe private‑training path is therefore head fine‑tuning (warm‑start official heads).",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-09-25T01:54:03-07:00",
+   "updated_at": "2026-09-25T01:54:20.969047-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 25,
+    "hour": 8,
+    "year": 2026,
+    "month": 9,
+    "minute": 54,
+    "quarter": 3,
+    "is_weekend": false,
+    "day_of_week": "friday",
+    "day_of_year": 268,
+    "week_of_year": 39
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "41ca4cd5-4c46-4a21-8bdd-03e00121cbb1",
+   "memory": "GitHub repository Contrastive-LM/CLM has 987 stars and 73 forks as of September 25, 2026, and is licensed under Apache-2.0, with a PyPI package released shortly after its launch on September 24, 2026 (contrastive-lm 0.1.0).",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-09-25T01:42:54-07:00",
+   "updated_at": "2026-09-25T01:43:26.659597-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 25,
+    "hour": 8,
+    "year": 2026,
+    "month": 9,
+    "minute": 42,
+    "quarter": 3,
+    "is_weekend": false,
+    "day_of_week": "friday",
+    "day_of_year": 268,
+    "week_of_year": 39
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "18f5e17a-004d-44ee-8bdb-6997472c6d9e",
+   "memory": "User is exploring self‑deployment options and asks whether vLLM or SGLang can be used as the backend",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-09-20T07:23:04-07:00",
+   "updated_at": "2026-09-20T07:23:21.450747-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 20,
+    "hour": 14,
+    "year": 2026,
+    "month": 9,
+    "minute": 23,
+    "quarter": 3,
+    "is_weekend": true,
+    "day_of_week": "sunday",
+    "day_of_year": 263,
+    "week_of_year": 38
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "391890e0-959c-4403-b9f5-70a19f5111b9",
+   "memory": "User requested research on the GitHub project NandhaKishorM/laya on September 20, 2026",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-09-20T07:18:49-07:00",
+   "updated_at": "2026-09-20T07:19:12.277002-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 20,
+    "hour": 14,
+    "year": 2026,
+    "month": 9,
+    "minute": 18,
+    "quarter": 3,
+    "is_weekend": true,
+    "day_of_week": "sunday",
+    "day_of_year": 263,
+    "week_of_year": 38
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "e0f98550-f739-4506-bca8-55b807d870a1",
+   "memory": "User requested research on the GitHub repository AetherLabsAI/RSIAgent.",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-09-15T07:52:41-07:00",
+   "updated_at": "2026-09-15T07:53:13.101054-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 15,
+    "hour": 14,
+    "year": 2026,
+    "month": 9,
+    "minute": 52,
+    "quarter": 3,
+    "is_weekend": false,
+    "day_of_week": "tuesday",
+    "day_of_year": 258,
+    "week_of_year": 38
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "759903e8-3113-4d93-9a7b-eb60866828d6",
+   "memory": "User requested research on the GitHub repository mattwang1230/build-evidence-bundle release v19.0.1.",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-09-13T08:57:50-07:00",
+   "updated_at": "2026-09-13T08:58:20.087632-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 13,
+    "hour": 15,
+    "year": 2026,
+    "month": 9,
+    "minute": 57,
+    "quarter": 3,
+    "is_weekend": true,
+    "day_of_week": "sunday",
+    "day_of_year": 256,
+    "week_of_year": 37
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "6c56b13c-026c-409f-9bb2-31ef28ed6c03",
+   "memory": "User requested an in-depth analysis of the Collaborate Engine algorithm details.",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-09-12T23:25:37-07:00",
+   "updated_at": "2026-09-13T01:17:55.952665-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 13,
+    "hour": 6,
+    "year": 2026,
+    "month": 9,
+    "minute": 25,
+    "quarter": 3,
+    "is_weekend": true,
+    "day_of_week": "sunday",
+    "day_of_year": 256,
+    "week_of_year": 37
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "53cbe50b-b92f-49af-964f-7619b61f8ef6",
+   "memory": "User requested research on the GitHub project PyroDash (https://github.com/Pyromind-Dynamics/PyroDash)",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-09-12T23:19:37-07:00",
+   "updated_at": "2026-09-13T01:16:51.176637-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 13,
+    "hour": 6,
+    "year": 2026,
+    "month": 9,
+    "minute": 19,
+    "quarter": 3,
+    "is_weekend": true,
+    "day_of_week": "sunday",
+    "day_of_year": 256,
+    "week_of_year": 37
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "5efed763-e454-463a-89f3-d80fe8190713",
+   "memory": "User requested research on the GitHub project at https://github.com/tarry9110/wechat-chat-export-decrypt",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-09-10T21:13:16-07:00",
+   "updated_at": "2026-09-10T21:14:23.512001-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 11,
+    "hour": 4,
+    "year": 2026,
+    "month": 9,
+    "minute": 13,
+    "quarter": 3,
+    "is_weekend": false,
+    "day_of_week": "friday",
+    "day_of_year": 254,
+    "week_of_year": 37
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "f7d7ea54-d8d8-4f3b-a880-da2df5c05239",
+   "memory": "User requested research on whether Alibaba Cloud PolarDB Serverless can elastically scale memory",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-09-07T04:33:08-07:00",
+   "updated_at": "2026-09-07T04:36:24.620020-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 7,
+    "hour": 11,
+    "year": 2026,
+    "month": 9,
+    "minute": 33,
+    "quarter": 3,
+    "is_weekend": false,
+    "day_of_week": "monday",
+    "day_of_year": 250,
+    "week_of_year": 37
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "c870d210-a56c-4327-9a8f-33230bf52368",
+   "memory": "User requested research on the GitHub project at http://github.com/93857536-pixel/WeChatExporter",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-08-27T22:05:51-07:00",
+   "updated_at": "2026-08-27T22:07:14.179678-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 28,
+    "hour": 5,
+    "year": 2026,
+    "month": 8,
+    "minute": 5,
+    "quarter": 3,
+    "is_weekend": false,
+    "day_of_week": "friday",
+    "day_of_year": 240,
+    "week_of_year": 35
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "c2a2c27a-f542-4a43-99a9-b74f2039a1f5",
+   "memory": "Active extensions include ask-user-question.ts (agent prompts), bash-guard (safety for dangerous bash commands), browser (Playwright headless Chromium), interactive-subagents (tmux async subagents), observational-memory (layered observation memory), prompt-snippets, web-search, and web-fetch/custom-header",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-08-25T09:06:20-07:00",
+   "updated_at": "2026-08-25T09:13:14.734295-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 25,
+    "hour": 16,
+    "year": 2026,
+    "month": 8,
+    "minute": 6,
+    "quarter": 3,
+    "is_weekend": false,
+    "day_of_week": "tuesday",
+    "day_of_year": 237,
+    "week_of_year": 35
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "a6fc47f4-a74f-4dea-af62-8b93f1687ab5",
+   "memory": "Usage involves copying selected files into ~/.pi/agent/, installing external dependencies (yt-dlp, ffmpeg, Python venv with pymupdf, Playwright Chromium), and reloading or restarting the Pi agent",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-08-25T09:06:20-07:00",
+   "updated_at": "2026-08-25T09:07:05.853951-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 25,
+    "hour": 16,
+    "year": 2026,
+    "month": 8,
+    "minute": 6,
+    "quarter": 3,
+    "is_weekend": false,
+    "day_of_week": "tuesday",
+    "day_of_year": 237,
+    "week_of_year": 35
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "9999235c-a3b0-48ba-ae93-c1f65a3858cf",
+   "memory": "The primary language of the repository is TypeScript and it also includes Python scripts",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-08-25T09:06:20-07:00",
+   "updated_at": "2026-08-25T09:13:14.734295-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 25,
+    "hour": 16,
+    "year": 2026,
+    "month": 8,
+    "minute": 6,
+    "quarter": 3,
+    "is_weekend": false,
+    "day_of_week": "tuesday",
+    "day_of_year": 237,
+    "week_of_year": 35
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "8b85d21d-c525-4446-bf42-11bb2d185a4e",
+   "memory": "Evaluation notes: strengths are clear design philosophy, high engineering quality, and useful extensions; weaknesses are lack of license, single maintainer, and potential breakage as upstream Pi evolves",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-08-25T09:06:20-07:00",
+   "updated_at": "2026-08-25T09:07:05.853951-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 25,
+    "hour": 16,
+    "year": 2026,
+    "month": 8,
+    "minute": 6,
+    "quarter": 3,
+    "is_weekend": false,
+    "day_of_week": "tuesday",
+    "day_of_year": 237,
+    "week_of_year": 35
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "810d1ca9-bd5a-4b09-af60-86d53f1252d3",
+   "memory": "User requested research on the GitHub repository amosblomqvist/pi-config",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-08-25T09:06:20-07:00",
+   "updated_at": "2026-08-25T09:13:14.734295-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 25,
+    "hour": 16,
+    "year": 2026,
+    "month": 8,
+    "minute": 6,
+    "quarter": 3,
+    "is_weekend": false,
+    "day_of_week": "tuesday",
+    "day_of_year": 237,
+    "week_of_year": 35
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "7c01a721-85b9-43b1-af59-408bd044e9f3",
+   "memory": "pi-config is a personal configuration library for the Pi coding agent CLI, offering reusable extensions and skills rather than a monolithic installable package",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-08-25T09:06:20-07:00",
+   "updated_at": "2026-08-25T09:13:14.734295-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 25,
+    "hour": 16,
+    "year": 2026,
+    "month": 8,
+    "minute": 6,
+    "quarter": 3,
+    "is_weekend": false,
+    "day_of_week": "tuesday",
+    "day_of_year": 237,
+    "week_of_year": 35
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "79df853c-6501-40ba-838c-ccf4d159e7aa",
+   "memory": "Active skills include analyze-sessions (session cost analysis), pdf-reader (PDF reading via pymupdf), web-debug (frontend debugging playbook), and youtube-transcript (fetch YouTube subtitles via yt-dlp)",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "professional_details",
+    "technology"
+   ],
+   "created_at": "2026-08-25T09:06:20-07:00",
+   "updated_at": "2026-08-25T09:13:14.734295-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 25,
+    "hour": 16,
+    "year": 2026,
+    "month": 8,
+    "minute": 6,
+    "quarter": 3,
+    "is_weekend": false,
+    "day_of_week": "tuesday",
+    "day_of_year": 237,
+    "week_of_year": 35
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "6f9e628e-9223-4f55-9cf5-083cfde77ffe",
+   "memory": "The pi-config repository has 491 stars, 48 forks, and 2 open issues",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-08-25T09:06:20-07:00",
+   "updated_at": "2026-08-25T09:13:14.734295-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 25,
+    "hour": 16,
+    "year": 2026,
+    "month": 8,
+    "minute": 6,
+    "quarter": 3,
+    "is_weekend": false,
+    "day_of_week": "tuesday",
+    "day_of_year": 237,
+    "week_of_year": 35
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "497d87cc-de5b-42e2-a1a9-b2a33683024c",
+   "memory": "The repository does not declare a license, which may affect reuse and distribution",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-08-25T09:06:20-07:00",
+   "updated_at": "2026-08-25T09:13:14.734295-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 25,
+    "hour": 16,
+    "year": 2026,
+    "month": 8,
+    "minute": 6,
+    "quarter": 3,
+    "is_weekend": false,
+    "day_of_week": "tuesday",
+    "day_of_year": 237,
+    "week_of_year": 35
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "40aca845-3adf-45df-8af3-f917d7b9ad9e",
+   "memory": "The repository was created on 2026-04-28 and last updated on 2026-08-24",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology",
+    "milestones"
+   ],
+   "created_at": "2026-08-25T09:06:20-07:00",
+   "updated_at": "2026-08-25T09:13:14.734295-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 25,
+    "hour": 16,
+    "year": 2026,
+    "month": 8,
+    "minute": 6,
+    "quarter": 3,
+    "is_weekend": false,
+    "day_of_week": "tuesday",
+    "day_of_year": 237,
+    "week_of_year": 35
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "38a0ce1e-3b90-40fb-a6bb-b0953315a252",
+   "memory": "Pi is an open-source coding agent CLI similar to Claude Code, authored by Mario Zechner (badlogic) and now part of the earendil-works organization",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-08-25T09:06:20-07:00",
+   "updated_at": "2026-08-25T09:13:14.734295-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 25,
+    "hour": 16,
+    "year": 2026,
+    "month": 8,
+    "minute": 6,
+    "quarter": 3,
+    "is_weekend": false,
+    "day_of_week": "tuesday",
+    "day_of_year": 237,
+    "week_of_year": 35
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "0642ee5e-4152-4c42-a3cf-af7f54c521d7",
+   "memory": "The repository contains 102 files organized into extensions (9 active), skills (4 active), and a deprecated directory with archived components",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-08-25T09:06:20-07:00",
+   "updated_at": "2026-08-25T09:13:14.734295-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 25,
+    "hour": 16,
+    "year": 2026,
+    "month": 8,
+    "minute": 6,
+    "quarter": 3,
+    "is_weekend": false,
+    "day_of_week": "tuesday",
+    "day_of_year": 237,
+    "week_of_year": 35
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "9051b109-67b6-4e75-a021-812e4aec6bd7",
+   "memory": "User requested a research report on the GitHub repository babygoton/WorkDaddy",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-08-20T19:16:46-07:00",
+   "updated_at": "2026-08-20T19:18:49.690771-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 21,
+    "hour": 2,
+    "year": 2026,
+    "month": 8,
+    "minute": 16,
+    "quarter": 3,
+    "is_weekend": false,
+    "day_of_week": "friday",
+    "day_of_year": 233,
+    "week_of_year": 34
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "49c612ae-ec83-4f65-86a3-16f3ba1ee9be",
+   "memory": "User intends to deploy the DeepSeek‑V4‑Flash‑0731 model on a cluster of eight Nvidia L20 GPUs and asked whether this setup is feasible",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {
+    "channel": "weixin"
+   },
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-08-18T04:51:03-07:00",
+   "updated_at": "2026-08-18T04:51:51.522523-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 18,
+    "hour": 11,
+    "year": 2026,
+    "month": 8,
+    "minute": 51,
+    "quarter": 3,
+    "is_weekend": false,
+    "day_of_week": "tuesday",
+    "day_of_year": 230,
+    "week_of_year": 34
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "e51e2625-cc77-465a-b9e3-0869ff69ea2f",
+   "memory": "User requested a research report on the OfficeCLI project hosted at https://github.com/iOfficeAI/OfficeCLI.",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {},
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-06-20T21:14:27-07:00",
+   "updated_at": "2026-06-20T21:17:04.223947-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 21,
+    "hour": 4,
+    "year": 2026,
+    "month": 6,
+    "minute": 14,
+    "quarter": 2,
+    "is_weekend": true,
+    "day_of_week": "sunday",
+    "day_of_year": 172,
+    "week_of_year": 25
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "671e82ec-8884-44a5-b52a-400b3b9bd0ba",
+   "memory": "User requested a research report on the Google Cloud Knowledge Catalog OKF subproject (GitHub URL: https://github.com/GoogleCloudPlatform/knowledge-catalog/tree/main/okf).",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {},
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-06-19T07:32:00-07:00",
+   "updated_at": "2026-06-19T15:34:35.621383-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 19,
+    "hour": 14,
+    "year": 2026,
+    "month": 6,
+    "minute": 32,
+    "quarter": 2,
+    "is_weekend": false,
+    "day_of_week": "friday",
+    "day_of_year": 170,
+    "week_of_year": 25
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "cf4bc516-5022-48b4-a84a-9ad1815295d9",
+   "memory": "User requested a GitHub search for projects named \"Hivemind\"",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {},
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-06-14T06:58:15-07:00",
+   "updated_at": "2026-06-14T08:20:58.519578-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 14,
+    "hour": 13,
+    "year": 2026,
+    "month": 6,
+    "minute": 58,
+    "quarter": 2,
+    "is_weekend": true,
+    "day_of_week": "sunday",
+    "day_of_year": 165,
+    "week_of_year": 24
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "6555bcdf-3a93-4d9f-bd29-fc1c500b959c",
+   "memory": "User wants to self‑host Mem0, asking for instructions on how to set up a private deployment",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {},
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-06-13T02:38:09-07:00",
+   "updated_at": "2026-06-13T02:38:44.437035-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 13,
+    "hour": 9,
+    "year": 2026,
+    "month": 6,
+    "minute": 38,
+    "quarter": 2,
+    "is_weekend": true,
+    "day_of_week": "saturday",
+    "day_of_year": 164,
+    "week_of_year": 24
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "4b390079-4098-441b-9f87-8ce2d68f5054",
+   "memory": "User requested a research report on how to install and deploy the LawLink project (GitHub lawflow-boop/LawLink).",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {},
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-06-12T23:12:55-07:00",
+   "updated_at": "2026-06-12T23:17:15.066684-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 13,
+    "hour": 6,
+    "year": 2026,
+    "month": 6,
+    "minute": 12,
+    "quarter": 2,
+    "is_weekend": true,
+    "day_of_week": "saturday",
+    "day_of_year": 164,
+    "week_of_year": 24
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "8514c0e6-72a0-4ece-8ab3-977ad5574759",
+   "memory": "User asked to use anysearch to find out what the company Innoscience (英诺赛科) does.",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {},
+   "categories": [
+    "professional_details"
+   ],
+   "created_at": "2026-06-10T09:59:30-07:00",
+   "updated_at": "2026-06-10T10:00:56.973870-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 10,
+    "hour": 16,
+    "year": 2026,
+    "month": 6,
+    "minute": 59,
+    "quarter": 2,
+    "is_weekend": false,
+    "day_of_week": "wednesday",
+    "day_of_year": 161,
+    "week_of_year": 24
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "2d52548e-64b8-4138-be7e-1128dcba5a9e",
+   "memory": "User requested a research report on the GitHub project Legal‑Skills‑Chinese (https://github.com/THUYRan/Legal-Skills-Chinese).",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {},
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-06-06T01:52:45-07:00",
+   "updated_at": "2026-06-06T01:54:17.942185-07:00",
+   "expiration_date": null,
+   "structured_attributes": {
+    "day": 6,
+    "hour": 8,
+    "year": 2026,
+    "month": 6,
+    "minute": 52,
+    "quarter": 2,
+    "is_weekend": true,
+    "day_of_week": "saturday",
+    "day_of_year": 157,
+    "week_of_year": 23
+   },
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "8c26ffcd-1bbc-4756-8928-2b41307df24f",
+   "memory": "User asked how to use the proxy mode of Headroom, indicating interest in configuring Headroom as a transparent compression proxy for LLM API calls.",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {},
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-06-03T17:04:11-07:00",
+   "updated_at": "2026-06-03T17:48:00.902275-07:00",
+   "expiration_date": null,
+   "structured_attributes": null,
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "ee5f5de0-c9da-4982-9bc5-0126bd7bec4b",
+   "memory": "User requested a research report on the GitHub project https://github.com/chopratejas/headroom",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {},
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-06-03T16:37:16-07:00",
+   "updated_at": "2026-06-03T17:47:48.767313-07:00",
+   "expiration_date": null,
+   "structured_attributes": null,
+   "replaced_by": "b5dcb70c-5144-47ce-9824-ded4edcae2eb",
+   "synthesized": false,
+   "lifecycle_state": "superseded"
+  },
+  {
+   "id": "1d92ba91-d8fc-4bdc-b66d-430550951322",
+   "memory": "User requested a detailed research report on the GitHub repository https://github.com/Stability-AI/stable-audio-3, which hosts the Stable Audio 3 project.",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {},
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-05-27T10:59:52-07:00",
+   "updated_at": "2026-05-27T11:01:50.054332-07:00",
+   "expiration_date": null,
+   "structured_attributes": null,
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "ce979804-a39e-48a5-b795-5cd73d863337",
+   "memory": "User requested a research report on the GitHub project RTK (github.com/rtk-ai/rtk).",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {},
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-05-27T10:33:54-07:00",
+   "updated_at": "2026-05-27T10:35:35.915750-07:00",
+   "expiration_date": null,
+   "structured_attributes": null,
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "8361650d-02ac-4a8e-ada1-3ebf3dccebb2",
+   "memory": "User requested a research report on the GitHub project OpenTeam (github.com/afumu/openteam).",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {},
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-05-26T09:19:30-07:00",
+   "updated_at": "2026-05-26T09:21:06.263777-07:00",
+   "expiration_date": null,
+   "structured_attributes": null,
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "646d615c-01e0-4424-aec6-0310aeba0f9f",
+   "memory": "User asked for an interpretation of the arXiv paper 2604.25850 titled \"Agentic Harness Engineering (AHE)\".",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {},
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-05-20T04:09:59-07:00",
+   "updated_at": "2026-05-20T09:35:35.727089-07:00",
+   "expiration_date": null,
+   "structured_attributes": null,
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "c79f391e-1ab2-490a-a804-d98bc20a4db7",
+   "memory": "User requested a research report on the GitHub project opentdx.",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {},
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-05-18T01:37:00-07:00",
+   "updated_at": "2026-05-18T01:37:32.983820-07:00",
+   "expiration_date": null,
+   "structured_attributes": null,
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "d55890ec-230f-43c8-b903-f3c9314f0a17",
+   "memory": "User requested a research report on the RuFlo project hosted at https://github.com/ruvnet/ruflo",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": {},
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-05-13T11:27:04-07:00",
+   "updated_at": "2026-05-13T12:54:30.714477-07:00",
+   "expiration_date": null,
+   "structured_attributes": null,
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "9916e7ba-0be7-4850-8e53-0c6cfaf62d39",
+   "memory": "User requested a step‑by‑step guide on how to configure ECC Antigravity for their project.",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": null,
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-05-08T20:53:52-07:00",
+   "updated_at": "2026-05-08T20:53:53.651281-07:00",
+   "expiration_date": null,
+   "structured_attributes": null,
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "daf420ad-1113-451b-82d8-b40e09b66af1",
+   "memory": "User requested research on Antigravity tools comparable to Everything Claude Code.",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": null,
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-05-08T20:42:52-07:00",
+   "updated_at": "2026-05-08T20:43:02.255333-07:00",
+   "expiration_date": null,
+   "structured_attributes": null,
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "e0396033-6e13-4899-b183-9b74753377b2",
+   "memory": "User requested a research report on the WeChat CLI project hosted at https://github.com/huohuoer/wechat-cli/blob/main/README_CN.md",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": null,
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-05-08T07:43:08-07:00",
+   "updated_at": "2026-05-08T07:44:33.633089-07:00",
+   "expiration_date": null,
+   "structured_attributes": null,
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "6d722e49-f07e-4512-9100-161e1ff91176",
+   "memory": "User requested a GitHub research report on the ExHyperV project.",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": null,
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-04-30T16:41:44-07:00",
+   "updated_at": "2026-04-30T16:41:50.899925-07:00",
+   "expiration_date": null,
+   "structured_attributes": null,
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "d44c76ce-2dff-46b7-8c5f-385c470f4883",
+   "memory": "User asked for a Tong Jincheng‑style response to the comment “好多蚊” (many mosquitoes)",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": null,
+   "categories": [
+    "misc"
+   ],
+   "created_at": "2026-04-28T04:30:04-07:00",
+   "updated_at": "2026-04-28T04:30:11.587934-07:00",
+   "expiration_date": null,
+   "structured_attributes": null,
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "690ca4ca-84cc-4193-a552-7ced835cc4d2",
+   "memory": "User has been able to attend school independently since elementary school and mentions that no one has held their hand for a long time since then.",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": null,
+   "categories": [
+    "milestones"
+   ],
+   "created_at": "2026-04-28T01:39:47-07:00",
+   "updated_at": "2026-04-28T01:39:50.456976-07:00",
+   "expiration_date": null,
+   "structured_attributes": null,
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "2bf069af-fa0f-4314-b76b-67126bfa87ea",
+   "memory": "User asked the assistant to reply using the style of Tong Jincheng (童锦程).",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": null,
+   "categories": [
+    "user_preferences"
+   ],
+   "created_at": "2026-04-28T01:39:47-07:00",
+   "updated_at": "2026-04-28T01:39:50.438079-07:00",
+   "expiration_date": null,
+   "structured_attributes": null,
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "bb6bd93b-ffc9-4033-af5f-e34f86826967",
+   "memory": "User asked for a summary of the LLM-as-a-Verifier project hosted at llm-as-a-verifier.notion.site.",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": null,
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-04-25T22:24:33-07:00",
+   "updated_at": "2026-04-25T22:24:43.406749-07:00",
+   "expiration_date": null,
+   "structured_attributes": null,
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "c4e15a21-0cd5-4f58-ba18-8b45deeb933c",
+   "memory": "User requested to save the PDF located at https://cdn.openai.com/pdf/6a2631dc-783e-479b-b1a4-af0cfbd38630/how-openai-uses-codex.pdf",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": null,
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-04-25T17:57:22-07:00",
+   "updated_at": "2026-04-25T17:57:27.283475-07:00",
+   "expiration_date": null,
+   "structured_attributes": null,
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "89f3275e-eba7-4ca4-a784-24437ae1fdeb",
+   "memory": "User asked about the meaning of the Roll algorithm in the financial domain, seeking clarification.",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": null,
+   "categories": [
+    "professional_details",
+    "technology"
+   ],
+   "created_at": "2026-04-24T20:43:33-07:00",
+   "updated_at": "2026-04-24T20:43:39.650750-07:00",
+   "expiration_date": null,
+   "structured_attributes": null,
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "8bf11231-a0a2-4d12-96d7-922168427e31",
+   "memory": "User asked what “Roll演算法” means, indicating a need for clarification within the OceanBase training context.",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": null,
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-04-24T20:39:56-07:00",
+   "updated_at": "2026-04-24T20:39:59.555213-07:00",
+   "expiration_date": null,
+   "structured_attributes": null,
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "66d277d1-05fa-41e9-aee1-00576c810ebf",
+   "memory": "User is preparing an OceanBase training session for developers who currently use MySQL sharding and asked for a training outline based on the latest OceanBase version features.",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": null,
+   "categories": [
+    "professional_details",
+    "technology"
+   ],
+   "created_at": "2026-04-24T18:15:02-07:00",
+   "updated_at": "2026-04-24T18:15:05.970680-07:00",
+   "expiration_date": null,
+   "structured_attributes": null,
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "ff6a74cb-913f-4428-8270-0e16fe24798c",
+   "memory": "User requested a research report on the Honcho memory plugin (GitHub repository plastic-labs/honcho).",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": null,
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-04-23T06:24:30-07:00",
+   "updated_at": "2026-04-23T06:24:54.888755-07:00",
+   "expiration_date": null,
+   "structured_attributes": null,
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "32360763-1c97-42a5-92b3-463b3253569f",
+   "memory": "User clarified that they want a research report on the GitHub repository paperclipai/paperclip rather than thoughtbot/paperclip.",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": null,
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-04-23T04:13:11-07:00",
+   "updated_at": "2026-04-23T04:14:24.121091-07:00",
+   "expiration_date": null,
+   "structured_attributes": null,
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "f1e95f38-70c4-4358-81fe-db91cd4f59ce",
+   "memory": "User requested a research report on the GitHub repository thoughtbot/paperclip, a Ruby on Rails file‑attachment gem.",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": null,
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-04-23T04:09:18-07:00",
+   "updated_at": "2026-04-23T04:10:30.958372-07:00",
+   "expiration_date": null,
+   "structured_attributes": null,
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  },
+  {
+   "id": "5ab0930d-c00f-4c28-ad24-c2ac811a4752",
+   "memory": "User asked whether the mem9 project (https://github.com/mem9-ai/mem9) provides only a command-line interface",
+   "user_id": "o9cq80w9VpKJq9SaClYSc_EwYF1E@im.wechat",
+   "metadata": null,
+   "categories": [
+    "technology"
+   ],
+   "created_at": "2026-04-23T00:24:54-07:00",
+   "updated_at": "2026-04-23T00:25:33.077016-07:00",
+   "expiration_date": null,
+   "structured_attributes": null,
+   "replaced_by": null,
+   "synthesized": false,
+   "lifecycle_state": "active"
+  }
+ ]
+}
