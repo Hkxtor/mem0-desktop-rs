@@ -271,8 +271,8 @@ mod tests {
             "base_url": "https://decision.test/v1/systemone",
             "noul_threshold": 1.5,
         }))
-            .err()
-            .expect("must reject");
+        .err()
+        .expect("must reject");
         assert!(err.to_string().contains("noul_threshold"), "{err}");
     }
 
