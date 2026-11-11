@@ -1,7 +1,10 @@
-//! The real migration case: the actual 69-row export from the official API
-//! (`mem0_memories_20261107_101247.json`, copied to fixtures verbatim). Importing it must
-//! preserve every id / created_at / updated_at, accept `expiration_date: null` on all rows,
-//! and be idempotent on a second pass.
+//! The migration case, as a 69-row export shaped like the official API's output.
+//!
+//! The file is synthetic: same 69 rows, same field set and the same distribution of
+//! categories, lifecycle states and `expiration_date: null`, but with placeholder ids,
+//! `user_id` and memory text. Importing it must preserve every id / created_at /
+//! updated_at, accept `expiration_date: null` on all rows, and be idempotent on a second
+//! pass.
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -88,7 +91,7 @@ async fn real_official_export_imports_with_every_id_and_timestamp_intact() {
         assert_eq!(row["user_id"], orig["user_id"], "id {id}");
         // The fixture carries expiration_date: null on every row — must be accepted.
         assert_eq!(row["expiration_date"], Value::Null, "id {id}");
-        // metadata (e.g. channel=weixin) survives as metadata, not flattened away.
+        // metadata (e.g. channel=fixture) survives as metadata, not flattened away.
         if let Some(md) = orig.get("metadata").and_then(|m| m.as_object()) {
             for (k, v) in md {
                 assert_eq!(&row["metadata"][k], v, "id {id} metadata {k}");

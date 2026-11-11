@@ -67,7 +67,7 @@ fn official_export() -> Value {
                 "id": "aac45e70-56d5-4d79-9d0b-df736d7ef129",
                 "memory": "User asked the assistant to check how many memories are stored",
                 "user_id": "fixture-user",
-                "metadata": {"channel": "weixin"},
+                "metadata": {"channel": "fixture"},
                 "created_at": "2026-11-06T18:08:56-08:00",
                 "updated_at": "2026-11-06T18:09:20.014941-08:00"
             },
@@ -108,7 +108,7 @@ async fn import_preserves_id_and_timestamps() {
         "{first}"
     );
     // metadata survives the trip too.
-    assert_eq!(first["metadata"]["channel"], json!("weixin"), "{first}");
+    assert_eq!(first["metadata"]["channel"], json!("fixture"), "{first}");
 }
 
 #[tokio::test]
