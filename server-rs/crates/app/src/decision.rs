@@ -25,8 +25,10 @@ use serde_json::{json, Value};
 
 use crate::categories::PRESET_CATEGORIES;
 
-/// Default endpoint for the SystemOne decision API.
-pub const DEFAULT_BASE_URL: &str = "https://api.bamboonode.dev/v1/systemone";
+/// Placeholder endpoint for the SystemOne decision API. There is deliberately no default:
+/// this provider speaks a vendor-specific protocol, so pointing at anything by default
+/// would silently send memory text to a service the operator never chose.
+pub const DEFAULT_BASE_URL: &str = "";
 
 /// What each preset category means, phrased as a yes/no question for the decision API.
 /// Short on purpose: the model gets fifteen of these in one request.
@@ -68,7 +70,12 @@ impl DecisionClient {
             .and_then(|v| v.as_str())
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .unwrap_or(DEFAULT_BASE_URL)
+            .ok_or_else(|| {
+                Mem0Error::configuration(
+                    "systemone.config.base_url is required: this provider is a vendor-specific \
+                     decision API, so there is no default endpoint to fall back to",
+                )
+            })?
             .trim_end_matches('/')
             .to_string();
         let model = cfg
@@ -217,17 +224,31 @@ fn truncate(s: &str, max: usize) -> String {
 mod tests {
     use super::*;
 
+    /// Every other test names an endpoint explicitly: there is no baked-in default, because
+    /// this provider would otherwise send memory text to a service nobody chose.
     fn client(cfg: Value) -> DecisionClient {
+        let mut cfg = cfg;
+        if !cfg.get("base_url").is_some() {
+            cfg["base_url"] = json!("https://decision.test/v1/systemone");
+        }
         DecisionClient::from_config(&cfg).expect("client")
     }
 
     #[test]
-    fn defaults_when_config_is_empty() {
+    fn defaults_when_config_is_empty_apart_from_the_endpoint() {
         let c = client(json!({}));
-        assert_eq!(c.base_url(), DEFAULT_BASE_URL);
+        assert_eq!(c.base_url(), "https://decision.test/v1/systemone");
         assert_eq!(c.model, "startlux-decision-27b-autothink");
         assert_eq!(c.think_mode, "auto");
         assert_eq!(c.noul_threshold, 0.5);
+    }
+
+    #[test]
+    fn a_missing_endpoint_is_an_error_not_a_silent_default() {
+        let err = DecisionClient::from_config(&json!({}))
+            .err()
+            .expect("must reject");
+        assert!(err.to_string().contains("base_url"), "{err}");
     }
 
     #[test]
@@ -246,7 +267,10 @@ mod tests {
 
     #[test]
     fn out_of_range_threshold_is_rejected() {
-        let err = DecisionClient::from_config(&json!({"noul_threshold": 1.5}))
+        let err = DecisionClient::from_config(&json!({
+            "base_url": "https://decision.test/v1/systemone",
+            "noul_threshold": 1.5,
+        }))
             .err()
             .expect("must reject");
         assert!(err.to_string().contains("noul_threshold"), "{err}");

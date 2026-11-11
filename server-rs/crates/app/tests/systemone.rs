@@ -152,7 +152,7 @@ async fn configure_rejects_unknown_systemone_provider() {
         "llm": {"provider": "mock", "config": {}},
         "embedder": {"provider": "mock", "config": {"embedding_dims": 10}},
         "vector_store": {"provider": "sqlite-vec", "config": {"collection_name": "mem0", "embedding_model_dims": 10}},
-        "systemone": {"provider": "bamboonode", "config": {}},
+        "systemone": {"provider": "not-a-provider", "config": {}},
     });
     let (status, resp) = call(&a.router, "POST", "/configure", Some(body)).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{resp}");

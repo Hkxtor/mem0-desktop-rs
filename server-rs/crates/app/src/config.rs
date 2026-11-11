@@ -270,7 +270,7 @@ mod decision_key_tests {
                 "config": {
                     "model": "sensenova-6.8-flash",
                     "openai_base_url": "https://token.example/v1",
-                    "base_url": "https://api.bamboonode.dev/v1/systemone",
+                    "base_url": "https://decision.example/v1/systemone",
                     "think_mode": "auto",
                     "noul_threshold": 0.5
                 }
@@ -290,7 +290,7 @@ mod decision_key_tests {
             "systemone": {
                 "provider": "systemone",
                 "config": {
-                    "base_url": "https://api.bamboonode.dev/v1/systemone",
+                    "base_url": "https://decision.example/v1/systemone",
                     "think_mode": "auto",
                     "noul_threshold": 0.4
                 }
@@ -300,7 +300,7 @@ mod decision_key_tests {
         let conf = &c["systemone"]["config"];
         assert_eq!(
             conf["base_url"],
-            json!("https://api.bamboonode.dev/v1/systemone")
+            json!("https://decision.example/v1/systemone")
         );
         assert_eq!(conf["think_mode"], json!("auto"));
         assert_eq!(conf["noul_threshold"], json!(0.4));

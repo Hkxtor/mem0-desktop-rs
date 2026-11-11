@@ -44,7 +44,9 @@ type BundledProviders = {
 // `systemone` is the SystemOne decision API (state + typed questions), not a chat model.
 const SYSTEMONE_PROVIDERS = ["openai", "anthropic", "gemini", "systemone"];
 const SYSTEMONE_DECISION = "systemone";
-const SYSTEMONE_DEFAULT_BASE_URL = "https://api.bamboonode.dev/v1/systemone";
+// No default on purpose: the decision provider is a vendor-specific API, so the operator
+// has to name the endpoint rather than have memory text sent somewhere by default.
+const SYSTEMONE_DEFAULT_BASE_URL = "";
 // Radix Select cannot hold an empty string as a real choice.
 const SYSTEMONE_OFF = "__off__";
 
