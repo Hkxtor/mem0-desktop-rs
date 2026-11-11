@@ -48,6 +48,31 @@ impl From<serde_json::Error> for StoreError {
     }
 }
 
+/// Bring an older database up to the current schema.
+///
+/// `CREATE TABLE IF NOT EXISTS` does nothing to a table that already exists, so every column
+/// added after the first release needs an explicit, idempotent `ALTER` here. Both `open` and
+/// the in-memory constructor run it, so a test database and a user's database have the same
+/// shape.
+fn migrate(conn: &Connection) -> Result<()> {
+    let add = |table: &str, column: &str, ty: &str| -> Result<()> {
+        let exists: i64 = conn.query_row(
+            &format!("SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name=?1"),
+            params![column],
+            |r| r.get(0),
+        )?;
+        if exists == 0 {
+            conn.execute(&format!("ALTER TABLE {table} ADD COLUMN {column} {ty}"), [])?;
+        }
+        Ok(())
+    };
+    // Credential type per request, added when the Requests page stopped showing HTTP rows.
+    add("request_logs", "auth_type", "TEXT NOT NULL DEFAULT 'none'")?;
+    // Why a successful memory operation produced nothing.
+    add("memory_operations", "reason", "TEXT")?;
+    Ok(())
+}
+
 pub struct StateStore {
     pub conn: Connection,
 }
@@ -95,7 +120,10 @@ CREATE TABLE IF NOT EXISTS memory_operations (
     result_count INTEGER,
     status_code INTEGER NOT NULL,
     latency_ms REAL NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    -- Why a successful call produced nothing. NULL for the ordinary case; the
+    -- Requests page shows a badge instead of leaving a bare 0 with no explanation.
+    reason TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_memory_operations_created_at ON memory_operations(created_at);
 -- Source inputs: the messages a memory was extracted from. One row per message in
@@ -157,6 +185,7 @@ impl StateStore {
             "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;",
         )?;
         conn.execute_batch(SCHEMA)?;
+        migrate(&conn)?;
         Ok(Self { conn })
     }
 
@@ -169,6 +198,7 @@ impl StateStore {
         // auth columns (name/email/last_login_at) are added by open_auth in
         // production; tests that touch them need them too.
         conn.execute_batch(crate::store_auth::AUTH_SCHEMA)?;
+        migrate(&conn)?;
         for (col, ty) in [("email", "TEXT"), ("last_login_at", "TEXT")] {
             let exists: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('users') WHERE name=?1",
@@ -429,14 +459,33 @@ impl StateStore {
         result_count: Option<i64>,
         status: i64,
         latency_ms: f64,
+        reason: Option<&str>,
     ) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
         self.conn.execute(
-            "INSERT INTO memory_operations(operation, detail, result_count, status_code, latency_ms, created_at)
-             VALUES(?1,?2,?3,?4,?5,?6)",
-            params![operation, detail, result_count, status, latency_ms, now],
+            "INSERT INTO memory_operations(operation, detail, result_count, status_code, latency_ms, created_at, reason)
+             VALUES(?1,?2,?3,?4,?5,?6,?7)",
+            params![operation, detail, result_count, status, latency_ms, now, reason],
         )?;
         Ok(())
+    }
+
+    /// Delete request and operation rows older than `days`.
+    ///
+    /// Fourteen days is the floor the Analytics page depends on: it reads a 12-day window,
+    /// so a shorter retention would silently shrink the figures rather than just trim the
+    /// history. Returns the number of rows removed from each table.
+    pub fn prune_history(&self, days: i64) -> Result<(usize, usize)> {
+        let cutoff = (chrono::Utc::now() - chrono::Duration::days(days)).to_rfc3339();
+        let requests = self.conn.execute(
+            "DELETE FROM request_logs WHERE created_at < ?1",
+            params![cutoff],
+        )?;
+        let operations = self.conn.execute(
+            "DELETE FROM memory_operations WHERE created_at < ?1",
+            params![cutoff],
+        )?;
+        Ok((requests, operations))
     }
 
     /// Newest first, in the shape the dashboard's Requests page renders.
@@ -446,7 +495,7 @@ impl StateStore {
     /// are exactly the rows that drown the interesting ones.
     pub fn list_memory_operations(&self, limit: i64) -> Result<Vec<Value>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, operation, detail, result_count, status_code, latency_ms, created_at
+            "SELECT id, operation, detail, result_count, status_code, latency_ms, created_at, reason
              FROM memory_operations WHERE operation <> 'LIST' ORDER BY id DESC LIMIT ?1",
         )?;
         let rows = stmt.query_map(params![limit], |r| {
@@ -458,6 +507,7 @@ impl StateStore {
                 "status_code": r.get::<_, i64>(4)?,
                 "latency_ms": r.get::<_, f64>(5)?,
                 "created_at": r.get::<_, String>(6)?,
+                "reason": r.get::<_, Option<String>>(7)?,
             }))
         })?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)

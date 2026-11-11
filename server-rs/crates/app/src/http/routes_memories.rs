@@ -154,13 +154,36 @@ pub async fn add_memory(
     // The count depends on how many memories the extraction produced, so it comes from
     // the payload rather than from the request.
     let results_of = |v: &Json<Value>| ops::count_results(&v.0);
-    ops::record(state.clone(), "ADD", detail, started, results_of, || {
-        add_memory_inner(state, body)
-    })
+    // `add` swallows two failures by design (a provider error and an unparseable answer
+    // both become `results: []`). The body writes the reason here so the Requests page can
+    // explain a zero instead of leaving the operator to guess.
+    let reason: Arc<std::sync::Mutex<Option<String>>> = Arc::new(std::sync::Mutex::new(None));
+    let reason_for_body = reason.clone();
+    let reason_of = move |_: &Json<Value>| reason.lock().ok().and_then(|r| r.clone());
+    ops::record_with_reason(
+        state.clone(),
+        "ADD",
+        detail,
+        started,
+        results_of,
+        reason_of,
+        || add_memory_inner(state, body, reason_for_body),
+    )
     .await
 }
 
-async fn add_memory_inner(state: Arc<AppState>, body: MemoryCreate) -> ApiResult<Json<Value>> {
+/// Stable codes stored in `memory_operations.reason`. The dashboard maps them to labels;
+/// the provider's own message lives in the application log, not in a database column that
+/// the UI would have to translate.
+const REASON_NO_MEMORIES: &str = "no_memories";
+const REASON_PROVIDER_ERROR: &str = "provider_error";
+const REASON_UNPARSED: &str = "unparsed_answer";
+
+async fn add_memory_inner(
+    state: Arc<AppState>,
+    body: MemoryCreate,
+    reason: Arc<std::sync::Mutex<Option<String>>>,
+) -> ApiResult<Json<Value>> {
     if body.user_id.is_none() && body.agent_id.is_none() && body.run_id.is_none() {
         return Err(ApiError::bad_request(
             "At least one identifier (user_id, agent_id, run_id) is required.",
@@ -187,7 +210,11 @@ async fn add_memory_inner(state: Arc<AppState>, body: MemoryCreate) -> ApiResult
         expiration_date: body.expiration_date.clone(),
         ..Default::default()
     };
+    // Bracket the call so the extraction diagnostics belong to this add and not to a
+    // concurrent one. See `mem0_core::diagnostics`.
+    let diag_before = mem0_core::diagnostics::current_seq();
     let results = mem.add(messages, opts).await.map_err(ApiError::from)?;
+    record_extraction_outcome(&results, diag_before, &reason);
 
     // Remember which messages produced each memory, so the detail panel can show the
     // source evidence. Best-effort: the add already happened and must not fail on this.
@@ -244,6 +271,49 @@ async fn add_memory_inner(state: Arc<AppState>, body: MemoryCreate) -> ApiResult
         }));
     }
     Ok(Json(json!({ "results": out })))
+}
+
+/// Turn the extraction diagnostics into a log line and, when the add produced nothing, a
+/// reason code for the Requests page.
+fn record_extraction_outcome(
+    results: &[mem0::AddResult],
+    since: u64,
+    reason: &Arc<std::sync::Mutex<Option<String>>>,
+) {
+    let diagnostics = mem0_core::diagnostics::since(since);
+    if diagnostics.is_empty() {
+        return;
+    }
+    // One add produces at most one diagnostic. Anything else means a concurrent add was
+    // recorded in the same window: log them all, but let the first name this reason.
+    for d in &diagnostics {
+        crate::logging::warn(
+            "llm",
+            "extraction produced no memories",
+            serde_json::json!({
+                "stage": d.stage.as_str(),
+                "parsed": d.parsed_count,
+                "error": d.error,
+                "answer": d.answer,
+                "truncated": d.answer.chars().count() > crate::logging::MAX_FIELD_CHARS,
+            }),
+        );
+    }
+    if !results.is_empty() {
+        return;
+    }
+    let Some(first) = diagnostics.first() else {
+        return;
+    };
+    let code = match first.stage {
+        mem0_core::diagnostics::Stage::LlmError => REASON_PROVIDER_ERROR,
+        mem0_core::diagnostics::Stage::EmptyAnswer => REASON_NO_MEMORIES,
+        mem0_core::diagnostics::Stage::Unparsed => REASON_UNPARSED,
+        mem0_core::diagnostics::Stage::NoUsableEntries => REASON_UNPARSED,
+    };
+    if let Ok(mut slot) = reason.lock() {
+        *slot = Some(code.to_string());
+    }
 }
 
 pub async fn search_memories(

@@ -11,6 +11,7 @@ pub mod decision;
 pub mod desktop_settings;
 pub mod http;
 pub mod lock;
+pub mod logging;
 pub mod memory_bridge;
 pub mod store;
 pub mod store_auth;
@@ -56,6 +57,24 @@ pub async fn start_server(
     cli_port: Option<u16>,
 ) -> std::io::Result<(JoinHandle<()>, SocketAddr)> {
     std::fs::create_dir_all(dir)?;
+    // First thing after the directory exists: everything below can fail in a way that is
+    // otherwise invisible on Windows, where the binary is a GUI-subsystem executable and
+    // stderr goes nowhere.
+    logging::init(dir);
+    logging::info(
+        "server",
+        "starting",
+        serde_json::json!({
+            // Not the crate version (0.0.0 for every build): the pid and the binary path
+            // are what actually distinguish one launch from another when two instances
+            // fight over the lock or the wrong exe is being run.
+            "pid": std::process::id(),
+            "exe": std::env::current_exe().ok().map(|p| p.display().to_string()),
+            "data_dir": dir.display().to_string(),
+            "auth_disabled": std::env::var("AUTH_DISABLED").ok(),
+            "cli_port": cli_port,
+        }),
+    );
     // Local-mode default, mirroring server/run.py::prepare_environment: this
     // server only ever binds 127.0.0.1, so authentication is relaxed unless the
     // operator set AUTH_DISABLED explicitly. Without this, a double-clicked
@@ -71,6 +90,7 @@ pub async fn start_server(
     // A stored configuration must come back up ready to serve memory requests;
     // otherwise a restart silently degrades to "no provider configured".
     http::routes_config::restore_persisted_runtime(&state).await;
+    spawn_history_pruning(state.clone());
     let saved_port = state
         .store
         .lock()
@@ -84,6 +104,11 @@ pub async fn start_server(
         {
             Ok(l) => l,
             Err(_) => {
+                logging::warn(
+                    "server",
+                    "configured port in use; using an ephemeral port",
+                    serde_json::json!({"requested": p}),
+                );
                 eprintln!("port {p} is in use; falling back to an ephemeral port");
                 tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))).await?
             }
@@ -94,12 +119,71 @@ pub async fn start_server(
     if let Ok(mut slot) = state.bound_port.lock() {
         *slot = Some(addr.port());
     }
+    logging::info(
+        "server",
+        "listening",
+        serde_json::json!({
+            "addr": addr.to_string(),
+            "requested_port": preferred,
+            "saved_port": saved_port,
+        }),
+    );
     let handle = tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, app).await {
+            logging::error(
+                "server",
+                "serve failed",
+                serde_json::json!({"error": e.to_string()}),
+            );
             eprintln!("server error: {e}");
         }
     });
     Ok((handle, addr))
+}
+
+/// How long the request and operation logs are kept.
+///
+/// Must stay above the Analytics page's 12-day window, otherwise pruning would make the
+/// figures fall off a cliff instead of just dropping old detail.
+pub const HISTORY_RETENTION_DAYS: i64 = 14;
+const PRUNE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
+
+/// Trim the two log tables at startup and every six hours after that.
+///
+/// Both grow without bound otherwise: a dashboard tab left open polls enough endpoints to
+/// add thousands of rows a day. Pruning runs off the request path so a slow delete never
+/// delays a memory call.
+fn spawn_history_pruning(state: std::sync::Arc<http::AppState>) {
+    tokio::spawn(async move {
+        loop {
+            // The guard is not `Send`, so it must not be alive across the sleep: the
+            // whole prune happens inside this block.
+            let outcome = match state.store.lock() {
+                Ok(store) => Some(store.prune_history(HISTORY_RETENTION_DAYS)),
+                Err(_) => None,
+            };
+            match outcome {
+                Some(Ok((requests, operations))) if requests + operations > 0 => {
+                    logging::info(
+                        "store",
+                        "pruned log history",
+                        serde_json::json!({
+                            "retention_days": HISTORY_RETENTION_DAYS,
+                            "request_rows": requests,
+                            "operation_rows": operations,
+                        }),
+                    );
+                }
+                Some(Ok(_)) | None => {}
+                Some(Err(e)) => logging::warn(
+                    "store",
+                    "pruning log history failed",
+                    serde_json::json!({"error": e.to_string()}),
+                ),
+            }
+            tokio::time::sleep(PRUNE_INTERVAL).await;
+        }
+    });
 }
 
 /// Headless CLI mode: `--headless` flag or `MEM0_HEADLESS=true`.

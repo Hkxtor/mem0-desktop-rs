@@ -23,6 +23,23 @@ type RequestLog = {
   results: number | null;
   statusCode: number;
   latencyMs: number;
+  reason: string | null;
+};
+
+/// Why an operation that succeeded produced nothing. The provider's own message lives in
+/// the application log, not in this column: a database field is not a place to store prose
+/// the UI would have to translate.
+const REASON_LABELS: Record<string, string> = {
+  no_memories: "未抽出",
+  provider_error: "模型调用失败",
+  unparsed_answer: "回答无法解析",
+};
+
+const REASON_HINTS: Record<string, string> = {
+  no_memories: "模型看过这条消息，但没有发现值得记住的内容。",
+  provider_error: "模型调用失败，抽取被跳过。详情见「日志」页的应用日志。",
+  unparsed_answer:
+    "模型的回答不是可解析的记忆列表。详情见「日志」页的应用日志。",
 };
 
 const REQUEST_LOG_LIMIT = 200;
@@ -71,6 +88,7 @@ const normalizeLog = (entry: ApiRequestLog): RequestLog => {
     results: entry.results ?? null,
     statusCode: entry.status_code,
     latencyMs: entry.latency_ms,
+    reason: entry.reason ?? null,
   };
 };
 
@@ -144,13 +162,27 @@ export default function RequestsPage() {
     {
       key: "results" as keyof RequestLog,
       label: "结果数",
-      width: 90,
-      render: (value: number | null) =>
-        value === null ? (
-          <span className="text-onSurface-default-tertiary">--</span>
-        ) : (
-          <span className="tabular-nums">{value}</span>
-        ),
+      width: 150,
+      render: (value: number | null, row: RequestLog) => {
+        const label = row.reason ? REASON_LABELS[row.reason] : undefined;
+        return (
+          <span className="flex items-center gap-2">
+            {value === null ? (
+              <span className="text-onSurface-default-tertiary">--</span>
+            ) : (
+              <span className="tabular-nums">{value}</span>
+            )}
+            {value === 0 && row.reason && (
+              <span
+                title={REASON_HINTS[row.reason] ?? row.reason}
+                className="cursor-help rounded border border-memBorder-primary bg-surface-default-secondary px-1.5 py-0.5 text-[11px] text-onSurface-default-secondary"
+              >
+                {label ?? row.reason}
+              </span>
+            )}
+          </span>
+        );
+      },
     },
     {
       key: "statusCode" as keyof RequestLog,

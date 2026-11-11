@@ -42,6 +42,34 @@ bash server-rs/scripts/build_desktop_rs.sh        # -> dist/*.tar.gz
 
 Data lives in `./data/` next to the binary (override with `MEM0_DATA_DIR`).
 
+## Diagnosing a memory that was not stored
+
+`POST /memories` returns `200` with `results: []` for three unrelated reasons, and the
+pipeline deliberately does not turn any of them into an error (a message that says nothing
+worth remembering is a normal request, not a failure):
+
+| What happened | Where it shows |
+|---|---|
+| The model answered `{"memory": []}` — nothing to remember | `reason: no_memories` |
+| The provider call failed (bad key, 404, timeout) | `reason: provider_error` |
+| The model answered something that is not a memory list | `reason: unparsed_answer` |
+
+The Requests page renders `0` with a grey `未抽出` badge next to it and the explanation on
+hover. The provider's own message, and the model's answer (truncated to 2000 characters),
+are in the application log: `<data>/logs/app.log`, JSONL, 5 MB × 3 rotating files, readable
+from **Dashboard → 日志 → 应用日志** with level filtering, keyword search, optional
+auto-refresh, and a download button.
+
+An empty Entities page is the same fact, not a second problem: entities are derived from the
+`user_id`/`agent_id`/`run_id` of stored memories, so no memories means no entities.
+
+Two rules the logger holds: credentials (`Authorization`, `X-API-Key`, `api_key=`, `sk-…`,
+`AIza…`, `ghp_…`) are redacted before anything is written, and the log is a file rather than
+a database table so that a failure before the database opens is still recorded.
+
+Request and operation logs are kept for 14 days (trimmed at startup and every six hours);
+the application log rotates by size instead.
+
 ## Test
 
 ```bash

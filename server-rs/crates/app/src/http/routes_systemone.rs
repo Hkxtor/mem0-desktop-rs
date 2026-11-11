@@ -31,14 +31,31 @@ pub async fn classify_recorded_detailed(
     classifier: &crate::categories::Classifier,
     text: &str,
 ) -> Result<(Vec<String>, Option<Value>), String> {
+    let started = std::time::Instant::now();
     match classifier.classify_detailed(text).await {
         Ok((cats, raw)) => {
             note_classify_result(state, None);
+            crate::logging::info(
+                "systemone",
+                "classified",
+                serde_json::json!({
+                    "categories": cats,
+                    "latency_ms": started.elapsed().as_secs_f64() * 1000.0,
+                }),
+            );
             Ok((cats, raw))
         }
         Err(e) => {
             let msg = e.to_string();
             note_classify_result(state, Some(msg.clone()));
+            crate::logging::warn(
+                "systemone",
+                "classification failed",
+                serde_json::json!({
+                    "error": msg,
+                    "latency_ms": started.elapsed().as_secs_f64() * 1000.0,
+                }),
+            );
             Err(msg)
         }
     }

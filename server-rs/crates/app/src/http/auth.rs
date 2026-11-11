@@ -311,6 +311,11 @@ pub async fn authenticate(state: &AppState, headers: &HeaderMap) -> Result<AuthC
         });
     }
 
+    crate::logging::warn(
+        "auth",
+        "rejected request without credentials",
+        serde_json::json!({}),
+    );
     Err(ApiError::unauthorized(
         "Authentication required. Provide a Bearer token or X-API-Key header.",
     ))

@@ -44,6 +44,15 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
+        // A 5xx is a bug or an unreachable dependency; the client gets the message but
+        // nobody is watching a packaged desktop app's stderr, so the log file keeps it.
+        if self.status.is_server_error() {
+            crate::logging::error(
+                "http",
+                "request failed",
+                serde_json::json!({"status": self.status.as_u16(), "detail": self.detail}),
+            );
+        }
         // Python FastAPI emits {"detail": "<message>"} for HTTPException(detail=...).
         (self.status, Json(json!({ "detail": self.detail }))).into_response()
     }
