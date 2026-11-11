@@ -1,0 +1,3 @@
+target/
+crates/app/src/embedded-dashboard/
+crates/app/src/http/embedded-dashboard/

@@ -1,0 +1,7 @@
+{
+  "method": "GET",
+  "path": "/dashboard/memories.txt",
+  "status": 200,
+  "content_type": "text/plain; charset=utf-8",
+  "body": "<8334 bytes, static/doc body elided>"
+}

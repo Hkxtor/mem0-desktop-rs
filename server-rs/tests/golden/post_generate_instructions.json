@@ -1,0 +1,7 @@
+{
+  "method": "POST",
+  "path": "/generate-instructions",
+  "status": 502,
+  "content_type": "application/json",
+  "body": "{\"detail\":\"Upstream provider error.\",\"code\":\"unknown\",\"request_id\":\"<rid>\"}"
+}

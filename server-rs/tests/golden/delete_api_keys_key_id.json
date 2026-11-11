@@ -1,0 +1,7 @@
+{
+  "method": "DELETE",
+  "path": "/api-keys/{key_id}",
+  "status": 404,
+  "content_type": "application/json",
+  "body": "{\"detail\":\"API key not found.\"}"
+}

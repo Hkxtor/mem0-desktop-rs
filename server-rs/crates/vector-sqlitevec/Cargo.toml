@@ -1,0 +1,24 @@
+[package]
+name = "vector-sqlitevec"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+description = "sqlite-vec (vec0) implementation of mem0-rs VectorStore for mem0-desktop"
+
+[dependencies]
+mem0-core.workspace = true
+rusqlite.workspace = true
+sqlite-vec.workspace = true
+serde_json.workspace = true
+async-trait.workspace = true
+zerocopy = "0.7"
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[dev-dependencies]
+tokio.workspace = true
+tempfile = "3"
+
+# The vendored sqlite-vec C sources emit compiler warnings (unused params etc.) via its
+# build script; they are upstream's, not ours. Silence only that crate's build-script noise.
+[lints.rust]
+unused = "allow"

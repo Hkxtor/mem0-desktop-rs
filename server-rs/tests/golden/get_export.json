@@ -1,0 +1,7 @@
+{
+  "method": "GET",
+  "path": "/export",
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\n  \"exported_at\": \"<datetime>\",\n  \"total\": 1,\n  \"memories\": [\n    {\n      \"id\": \"<uuid>\",\n      \"memory\": \"golden fact\",\n      \"user_id\": \"golden\",\n      \"agent_id\": null,\n      \"run_id\": null,\n      \"hash\": \"a9be4f64573b1eb60f1ba86260bec050\",\n      \"expiration_date\": null,\n      \"metadata\": {\n        \"role\": \"user\",\n        \"text_lemmatized\": \"golden fact\"\n      },\n      \"created_at\": \"<datetime>\",\n      \"updated_at\": \"<datetime>\"\n    }\n  ]\n}"
+}

@@ -1,0 +1,7 @@
+{
+  "method": "GET",
+  "path": "/auth/setup-status",
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"needsSetup\":false,\"localMode\":true}"
+}

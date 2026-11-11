@@ -1,0 +1,69 @@
+# M5/R9 performance regression gate for the sqlite-vec vector store.
+#
+# Runs the perf baseline binary in release mode on ubuntu and fails the build if
+# the search p95 thresholds are exceeded. Insert and 100k-keyword timings are
+# recorded but only warn (CI runners vary too much for hard insert gates).
+#
+# Thresholds are set from local measurements on a dev container (10k search p95
+# ~18 ms at 64 dims, ~70 ms at 1536 dims) with ~7x headroom for slower runners.
+name: rust-perf
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "server-rs/crates/vector-sqlitevec/**"
+      - ".github/workflows/rust-perf.yml"
+  pull_request:
+    paths:
+      - "server-rs/crates/vector-sqlitevec/**"
+
+permissions:
+  contents: read
+
+jobs:
+  perf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server-rs
+      - name: Run perf baseline (10k full dims, 30k rows at 64 dims)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd server-rs
+          # Full-dims 10k gate (the product-relevant size for desktop)
+          cargo run --release -p vector-sqlitevec --bin perf > /tmp/perf.json
+          cat /tmp/perf.json
+      - name: Enforce thresholds
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, sys
+          r = json.load(open("/tmp/perf.json"))
+          gates = {
+              "search_10k_p95_ms": 500,        # local ~18-70 ms; 500 ms = ~7-25x headroom
+              "search_100k_p95_ms": 5000,      # measured ~830 ms at 30k rows; 5 s = ~6x headroom
+              "keyword_100k_p95_ms": 30000,  # FTS MATCH on 30k rows measured ~16 s in container; warn-level
+          }
+          failed = False
+          for key, limit in gates.items():
+              v = r.get(key)
+              if v is None:
+                  print(f"MISSING {key}")
+                  failed = True
+                  continue
+              status = "OK" if v <= limit else "FAIL"
+              print(f"{key} = {v} ms (limit {limit}) {status}")
+              if v > limit:
+                  failed = True
+          # insert timings: warn only
+          for key in ("insert_10k_ms", "insert_100k_ms"):
+              print(f"{key} = {r.get(key)} ms (informational)")
+          sys.exit(1 if failed else 0)
+          PY

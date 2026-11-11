@@ -1,0 +1,7 @@
+{
+  "method": "DELETE",
+  "path": "/v1/memories/",
+  "status": 400,
+  "content_type": "application/json",
+  "body": "{\"detail\":\"At least one identifier is required.\"}"
+}

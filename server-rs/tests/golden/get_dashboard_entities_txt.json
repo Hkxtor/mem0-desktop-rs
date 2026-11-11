@@ -1,0 +1,7 @@
+{
+  "method": "GET",
+  "path": "/dashboard/entities.txt",
+  "status": 200,
+  "content_type": "text/plain; charset=utf-8",
+  "body": "<8107 bytes, static/doc body elided>"
+}

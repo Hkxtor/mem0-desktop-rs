@@ -1,0 +1,7 @@
+{
+  "method": "GET",
+  "path": "/dashboard/api-keys/",
+  "status": 200,
+  "content_type": "text/html; charset=utf-8",
+  "body": "<14580 bytes, static/doc body elided>"
+}

@@ -1,0 +1,7 @@
+{
+  "method": "GET",
+  "path": "/v1/memories/{memory_id}/history/",
+  "status": 200,
+  "content_type": "application/json",
+  "body": "[]"
+}

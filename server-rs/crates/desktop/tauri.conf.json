@@ -1,0 +1,24 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "mem0-desktop",
+  "version": "0.0.0",
+  "identifier": "ai.mem0.desktop",
+  "build": {
+    "frontendDist": "frontend-stub"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:*; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/icon-256.png",
+      "icons/icon-128.png",
+      "icons/icon.ico"
+    ]
+  }
+}

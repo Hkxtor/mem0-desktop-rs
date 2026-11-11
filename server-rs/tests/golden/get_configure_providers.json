@@ -1,0 +1,7 @@
+{
+  "method": "GET",
+  "path": "/configure/providers",
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"llm\":[\"openai\",\"anthropic\",\"gemini\"],\"embedder\":[\"openai\",\"gemini\"]}"
+}

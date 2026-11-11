@@ -1,0 +1,7 @@
+{
+  "method": "POST",
+  "path": "/reset",
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"message\":\"All memories reset\"}"
+}

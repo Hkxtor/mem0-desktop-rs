@@ -1,0 +1,33 @@
+# Rust
+server-rs/target/
+server-rs/crates/app/src/embedded-dashboard/
+server-rs/crates/app/src/http/embedded-dashboard/
+
+# Dashboard build artifacts
+server/dashboard/node_modules/
+server/dashboard/.next/
+server/dashboard/out/
+
+# Desktop app artifacts (never commit binaries)
+dist/
+*.tar.gz
+
+# Local runtime state
+server-rs/**/data/
+*.db
+*.db-shm
+*.db-wal
+
+# Python (only used by local e2e tooling, not shipped)
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Pi harness session artifacts
+.pi/
+.unipi/
+
+# OS
+.DS_Store

@@ -1,0 +1,7 @@
+{
+  "method": "POST",
+  "path": "/api-keys",
+  "status": 201,
+  "content_type": "application/json",
+  "body": "{\"id\":\"<uuid>\",\"key\":\"<mem0-secret-key>\",\"label\":\"golden-key\",\"key_prefix\":\"<mem0-secret-key>\",\"created_at\":\"<datetime>\"}"
+}

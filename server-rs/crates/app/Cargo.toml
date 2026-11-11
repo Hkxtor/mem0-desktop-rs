@@ -1,0 +1,51 @@
+[package]
+name = "mem0-desktop-rs"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+description = "Rust rewrite of the mem0-desktop portable app (M0 scaffold)"
+
+[dependencies]
+mem0-core.workspace = true
+mem0.workspace = true
+mem0-llm.workspace = true
+mem0-embed.workspace = true
+vector-sqlitevec = { path = "../vector-sqlitevec" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+async-trait.workspace = true
+include_dir = "0.7"
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+rusqlite.workspace = true
+jsonwebtoken.workspace = true
+argon2.workspace = true
+bcrypt.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+governor.workspace = true
+base64.workspace = true
+sha2.workspace = true
+hex.workspace = true
+rand.workspace = true
+libc = "0.2"
+reqwest = { version = "0.12", features = ["json"] }
+
+[target.'cfg(windows)'.dependencies]
+# Login entry: writing HKCU through the registry API instead of shelling out to
+# reg.exe — no argument-quoting layer, and errors come back typed.
+winreg = "0.52"
+
+[lib]
+name = "mem0_desktop_rs"
+path = "src/lib.rs"
+
+[dev-dependencies]
+tempfile = "3"
+sha2 = "0.10"
+async-trait = { workspace = true }
+mem0-core = { workspace = true }
+vector-sqlitevec = { path = "../vector-sqlitevec" }
+tokio = { workspace = true, features = ["macros", "rt"] }
