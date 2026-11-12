@@ -11,7 +11,7 @@ import { DataTable } from "@/components/shared/data-table";
 import { TableSkeleton } from "@/components/shared/table-skeleton";
 import { EmptyState } from "@/components/self-hosted/empty-state";
 import { api } from "@/utils/api";
-import { REQUEST_ENDPOINTS, RequestStats } from "@/utils/api-endpoints";
+import { REQUEST_ENDPOINTS } from "@/utils/api-endpoints";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { ApiRequestLog } from "@/types/api";
 
@@ -112,23 +112,6 @@ export default function RequestsPage() {
     { errorToast: "无法加载操作记录", initialData: [] },
   );
 
-  // Totals come from the table, not from `logs`: the list is capped at
-  // REQUEST_LOG_LIMIT rows, so counting them froze all three cards at that cap on a
-  // busy install — numbers that never move look like static data.
-  const { data: stats, refetch: refetchStats } = useApiQuery<RequestStats>(
-    async () => {
-      const res = await api.get<RequestStats>(REQUEST_ENDPOINTS.STATS);
-      return res.data;
-    },
-    { errorToast: "无法加载操作统计", initialData: undefined },
-  );
-
-  const totalRequests = stats?.operations ?? 0;
-  const successRate =
-    totalRequests > 0 ? Math.round((stats?.success_rate ?? 0) * 100) : 0;
-  const averageLatency =
-    totalRequests > 0 ? Math.round(stats?.avg_latency_ms ?? 0) : 0;
-
   const columns = [
     {
       key: "createdAt" as keyof RequestLog,
@@ -228,38 +211,13 @@ export default function RequestsPage() {
           variant="outline"
           onClick={() => {
             setPage(0);
-            // Both: the cards are read from the aggregate, the table from the list.
             void refetch();
-            void refetchStats();
           }}
           disabled={isLoading}
         >
           <RefreshCw className="size-4 mr-2" />
           刷新
         </Button>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        {[
-          { label: "操作总数", value: totalRequests },
-          {
-            label: "成功率",
-            value: totalRequests > 0 ? `${successRate}%` : "--",
-          },
-          {
-            label: "平均耗时",
-            value: totalRequests > 0 ? `${averageLatency} ms` : "--",
-          },
-        ].map((card) => (
-          <Card key={card.label} className="border-memBorder-primary">
-            <CardContent className="p-5">
-              <p className="text-xs text-onSurface-default-tertiary">
-                {card.label}
-              </p>
-              <p className="mt-1 text-2xl font-semibold">{card.value}</p>
-            </CardContent>
-          </Card>
-        ))}
       </div>
 
       {error && (
