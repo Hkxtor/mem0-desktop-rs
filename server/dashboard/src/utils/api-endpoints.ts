@@ -66,7 +66,15 @@ export const DIAGNOSTICS_ENDPOINTS = {
 
 export const REQUEST_ENDPOINTS = {
   BASE: "/requests",
+  /// Totals over every recorded operation, not over the page of rows the list fetched.
+  STATS: "/requests/stats",
 } as const;
+
+export type RequestStats = {
+  operations: number;
+  success_rate: number;
+  avg_latency_ms: number;
+};
 
 export const LOG_ENDPOINTS = {
   APP: "/logs/app",
