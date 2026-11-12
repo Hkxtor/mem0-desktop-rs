@@ -171,19 +171,6 @@ pub async fn list_requests(
     Ok(Json(json!(operations)))
 }
 
-/// `GET /requests/stats`: the three totals above the list. Kept beside `/requests` rather
-/// than folded into it, so the list keeps its plain-array shape.
-pub async fn request_stats(
-    State(state): State<Arc<AppState>>,
-    Extension(_auth): Extension<AuthContext>,
-) -> ApiResult<Json<Value>> {
-    let store = state
-        .store
-        .lock()
-        .map_err(|_| ApiError::internal("store lock poisoned"))?;
-    Ok(Json(store.memory_operations_stats()?))
-}
-
 // ---------- /entities ----------
 
 /// Entity buckets derived from memory payloads (user_id/agent_id/run_id), mirroring
@@ -453,7 +440,6 @@ pub fn routes() -> axum::Router<Arc<AppState>> {
         .route("/api-keys/{id}", delete(delete_key))
         .route("/analytics/summary", get(analytics_summary))
         .route("/requests", get(list_requests))
-        .route("/requests/stats", get(request_stats))
         .route("/entities", get(list_entities))
         .route("/entities/{etype}/{id}", delete(delete_entity))
         .route("/v1/entities/", get(list_entities))

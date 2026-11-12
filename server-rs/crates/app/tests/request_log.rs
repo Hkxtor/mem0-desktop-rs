@@ -145,49 +145,6 @@ async fn requests_lists_memory_operations_not_routes() {
     );
 }
 
-/// The three cards above the list must describe the whole table, not the page of rows the
-/// list fetched: counting the rows froze them at the 200-row cap and looked like static data.
-#[tokio::test]
-async fn request_stats_cover_the_table_not_the_visible_page() {
-    let a = app_with_memory().await;
-    let app = &a.router;
-
-    let (status, body) = call(app, "GET", "/requests/stats", None).await;
-    assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body["operations"], serde_json::json!(0), "{body}");
-    assert_eq!(body["success_rate"], serde_json::json!(0.0), "{body}");
-    assert_eq!(body["avg_latency_ms"], serde_json::json!(0.0), "{body}");
-
-    for i in 0..3 {
-        call(
-            app,
-            "POST",
-            "/memories",
-            Some(serde_json::json!({
-                "messages": [{"role": "user", "content": format!("fact {i}")}],
-                "user_id": "alice",
-                "infer": false
-            })),
-        )
-        .await;
-    }
-
-    let (status, stats) = call(app, "GET", "/requests/stats", None).await;
-    assert_eq!(status, StatusCode::OK, "{stats}");
-    assert_eq!(stats["operations"], serde_json::json!(3), "{stats}");
-    assert_eq!(stats["success_rate"], serde_json::json!(1.0), "{stats}");
-    assert!(
-        stats["avg_latency_ms"].as_f64().unwrap() > 0.0,
-        "a real measurement, not a placeholder: {stats}"
-    );
-
-    // The list hides `LIST` rows; the totals must agree with it, or the page would show a
-    // count the table below cannot account for.
-    call(app, "GET", "/memories", None).await;
-    let (_, stats) = call(app, "GET", "/requests/stats", None).await;
-    assert_eq!(stats["operations"], serde_json::json!(3), "{stats}");
-}
-
 /// A failed operation is still recorded, with its status.
 #[tokio::test]
 async fn failed_operations_are_recorded_with_their_status() {
