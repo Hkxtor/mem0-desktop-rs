@@ -11,7 +11,7 @@ import { DataTable } from "@/components/shared/data-table";
 import { TableSkeleton } from "@/components/shared/table-skeleton";
 import { EmptyState } from "@/components/self-hosted/empty-state";
 import { api } from "@/utils/api";
-import { REQUEST_ENDPOINTS } from "@/utils/api-endpoints";
+import { REQUEST_ENDPOINTS, RequestStats } from "@/utils/api-endpoints";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { ApiRequestLog } from "@/types/api";
 
@@ -112,18 +112,22 @@ export default function RequestsPage() {
     { errorToast: "无法加载操作记录", initialData: [] },
   );
 
-  const totalRequests = logs.length;
-  const successfulRequests = logs.filter((log) => log.statusCode < 400).length;
+  // Totals come from the table, not from `logs`: the list is capped at
+  // REQUEST_LOG_LIMIT rows, so counting them froze all three cards at that cap on a
+  // busy install — numbers that never move look like static data.
+  const { data: stats, refetch: refetchStats } = useApiQuery<RequestStats>(
+    async () => {
+      const res = await api.get<RequestStats>(REQUEST_ENDPOINTS.STATS);
+      return res.data;
+    },
+    { errorToast: "无法加载操作统计", initialData: undefined },
+  );
+
+  const totalRequests = stats?.operations ?? 0;
   const successRate =
-    totalRequests > 0
-      ? Math.round((successfulRequests / totalRequests) * 100)
-      : 0;
+    totalRequests > 0 ? Math.round((stats?.success_rate ?? 0) * 100) : 0;
   const averageLatency =
-    totalRequests > 0
-      ? Math.round(
-          logs.reduce((sum, log) => sum + log.latencyMs, 0) / totalRequests,
-        )
-      : 0;
+    totalRequests > 0 ? Math.round(stats?.avg_latency_ms ?? 0) : 0;
 
   const columns = [
     {
@@ -224,7 +228,9 @@ export default function RequestsPage() {
           variant="outline"
           onClick={() => {
             setPage(0);
+            // Both: the cards are read from the aggregate, the table from the list.
             void refetch();
+            void refetchStats();
           }}
           disabled={isLoading}
         >

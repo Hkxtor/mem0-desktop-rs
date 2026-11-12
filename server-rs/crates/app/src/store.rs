@@ -513,6 +513,33 @@ impl StateStore {
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
     }
 
+    /// Totals for the Requests page cards.
+    ///
+    /// The page used to derive these from the rows it had fetched, which are capped at 200:
+    /// on a busy install every card froze at that cap and looked like static data. The
+    /// numbers have to come from the table, not from the page of it that happens to be on
+    /// screen.
+    pub fn memory_operations_stats(&self) -> Result<Value> {
+        let (operations, ok, avg): (i64, i64, Option<f64>) = self.conn.query_row(
+            "SELECT COUNT(*),
+                    COALESCE(SUM(CASE WHEN status_code < 400 THEN 1 ELSE 0 END), 0),
+                    AVG(latency_ms)
+             FROM memory_operations WHERE operation <> 'LIST'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )?;
+        let success_rate = if operations > 0 {
+            ok as f64 / operations as f64
+        } else {
+            0.0
+        };
+        Ok(serde_json::json!({
+            "operations": operations,
+            "success_rate": success_rate,
+            "avg_latency_ms": avg.unwrap_or(0.0),
+        }))
+    }
+
     /// Record the messages a memory was extracted from. Replaces any previous rows for
     /// that memory, so re-adding an imported id does not stack duplicates.
     pub fn record_memory_inputs(
@@ -708,6 +735,37 @@ impl StateStore {
 mod tests {
     use super::*;
     use sha2::Digest;
+
+    /// The cards used to be computed from the newest 200 rows, so past that cap they froze
+    /// and read as static data. The aggregate has to count the table.
+    #[test]
+    fn operation_stats_count_past_the_list_cap() {
+        let s = StateStore::in_memory().unwrap();
+        assert_eq!(
+            s.memory_operations_stats().unwrap(),
+            serde_json::json!({"operations": 0, "success_rate": 0.0, "avg_latency_ms": 0.0})
+        );
+
+        for i in 0..250 {
+            s.log_memory_operation("ADD", &format!("m{i}"), Some(1), 200, 10.0, None)
+                .unwrap();
+        }
+        // One failure and one row the list hides: only the failure may move the rate.
+        s.log_memory_operation("SEARCH", "q", Some(0), 500, 30.0, None)
+            .unwrap();
+        s.log_memory_operation("LIST", "", None, 200, 1.0, None)
+            .unwrap();
+
+        let stats = s.memory_operations_stats().unwrap();
+        assert_eq!(stats["operations"], serde_json::json!(251), "{stats}");
+        let rate = stats["success_rate"].as_f64().unwrap();
+        assert!((rate - 250.0 / 251.0).abs() < 1e-9, "{stats}");
+        let avg = stats["avg_latency_ms"].as_f64().unwrap();
+        assert!(
+            (avg - (250.0 * 10.0 + 30.0) / 251.0).abs() < 1e-6,
+            "{stats}"
+        );
+    }
 
     #[test]
     fn schema_creates_and_local_user_is_not_loginable() {
