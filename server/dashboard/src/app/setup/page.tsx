@@ -34,7 +34,6 @@ import {
   embedderKeyHint,
   getEffectiveConfig,
   readBaseUrl,
-  resolveEmbedderApiKey,
 } from "@/utils/self-hosted-config";
 import { isValidEmail } from "@/lib/validators";
 
@@ -272,21 +271,19 @@ export default function SetupPage() {
 
     setIsLoading(true);
     try {
+      // The wizard takes one key per section; more are configured later on the Configuration
+      // page. An empty embedder key is not copied from the LLM here — the server inherits the
+      // LLM's keys when the two sections share a provider.
       const llm = buildProviderConfig({
         provider: llmProvider,
         model: llmModel,
-        apiKey: llmApiKey,
+        apiKeys: llmApiKey.trim() ? [llmApiKey.trim()] : undefined,
         baseUrl: llmBaseUrl,
       });
       const embedder = buildProviderConfig({
         provider: embedderProvider,
         model: embedderModel,
-        apiKey: resolveEmbedderApiKey({
-          embedderApiKey,
-          llmApiKey,
-          embedderProvider,
-          llmProvider,
-        }),
+        apiKeys: embedderApiKey.trim() ? [embedderApiKey.trim()] : undefined,
         baseUrl: embedderBaseUrl,
         embeddingDims: embeddingDims ? Number(embeddingDims) : undefined,
       });

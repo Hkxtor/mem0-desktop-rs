@@ -66,6 +66,120 @@ pub fn drop_stale_base_urls(config: &mut Value) {
     }
 }
 
+/// Rewrite a section's `api_keys` into the shape the pool expects, and keep the legacy
+/// `api_key` pointing at the first one.
+///
+/// The list is the source of truth; `api_key` stays because it is what every existing config
+/// file, every test fixture, and the `/configure` response already contain. Keeping it equal to
+/// the first entry means a single-key config written by any previous version still works
+/// untouched, and a config read by any older build still finds a key.
+///
+/// Order is preserved (it is the rotation order), blanks are dropped, and an exact duplicate is
+/// removed: the same key listed twice is the same quota listed twice, which would only make the
+/// rotation spend it twice as often.
+///
+/// Returns an error for a list that cannot be honoured rather than silently truncating it.
+///
+/// `updates` decides *which* instruction to follow, because the merge cannot tell them apart:
+/// supplying `api_keys` replaces the set, supplying only `api_key` replaces it with that one key
+/// (what a build that predates pools does), and supplying neither keeps what is stored. Without
+/// that, a stale list left over from the merged previous config would quietly outvote a new key.
+fn normalize_api_keys(config: &mut Value, updates: &Value) -> std::result::Result<(), String> {
+    fn trimmed(v: Option<&Value>) -> String {
+        v.and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    }
+    fn dedupe(keys: Vec<String>) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for key in keys.into_iter().filter(|k| !k.is_empty()) {
+            if !out.contains(&key) {
+                out.push(key);
+            }
+        }
+        out
+    }
+
+    for section in SECTIONS {
+        let instructed = updates
+            .get(section)
+            .and_then(|s| s.get("config"))
+            .and_then(|c| c.as_object())
+            .and_then(|c| {
+                let listed = c
+                    .get("api_keys")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.iter().map(|v| trimmed(Some(v))).collect::<Vec<_>>())
+                    .unwrap_or_default();
+                let one = trimmed(c.get("api_key"));
+                if !listed.iter().all(|k| k.is_empty()) {
+                    Some(listed)
+                } else if !one.is_empty() {
+                    Some(vec![one])
+                } else {
+                    None
+                }
+            });
+
+        let Some(cfg) = config
+            .get_mut(section)
+            .and_then(|s| s.get_mut("config"))
+            .and_then(|c| c.as_object_mut())
+        else {
+            continue;
+        };
+
+        let keys = match instructed {
+            Some(list) => dedupe(list),
+            None => {
+                // Nothing said about keys: re-derive the stored pair, so an alias that drifted
+                // (a hand-edited file) is corrected and a key removed by a provider switch stays
+                // removed instead of being resurrected by the list.
+                let listed = cfg
+                    .get("api_keys")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.iter().map(|v| trimmed(Some(v))).collect::<Vec<_>>())
+                    .unwrap_or_default();
+                let one = trimmed(cfg.get("api_key"));
+                let listed = dedupe(listed);
+                if listed.is_empty() && one.is_empty() {
+                    Vec::new()
+                } else if listed.is_empty() {
+                    vec![one]
+                } else {
+                    listed
+                }
+            }
+        };
+
+        if keys.len() > crate::keyring::MAX_KEYS {
+            return Err(format!(
+                "{section}: at most {} API keys, {} were supplied",
+                crate::keyring::MAX_KEYS,
+                keys.len()
+            ));
+        }
+
+        match keys.len() {
+            0 => {
+                // Nothing usable: do not invent an empty list, and do not leave a stale one to be
+                // resurrected by a later merge.
+                cfg.remove("api_keys");
+                cfg.remove("api_key");
+            }
+            _ => {
+                cfg.insert(
+                    "api_keys".to_string(),
+                    Value::Array(keys.iter().cloned().map(Value::String).collect()),
+                );
+                cfg.insert("api_key".to_string(), Value::String(keys[0].clone()));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Drop a section's `api_key` when the provider changed and the update did not
 /// supply a replacement key. Port of `_drop_replaced_credentials`
 /// (`server/server_state.py`).
@@ -89,18 +203,31 @@ pub fn drop_replaced_credentials(previous: &Value, next_config: &mut Value, upda
         if old_provider.is_empty() || new_provider.is_empty() || old_provider == new_provider {
             continue;
         }
-        let supplied = updates
-            .get(section)
-            .and_then(|s| s.get("config"))
+        // Either field counts as "the operator supplied a replacement". Checking only
+        // `api_key` would let a pooled config keep the old provider's keys across a switch,
+        // because the list — not the alias — is what the pool actually spends.
+        let update_cfg = updates.get(section).and_then(|s| s.get("config"));
+        let supplied = update_cfg
             .and_then(|c| c.get("api_key"))
             .and_then(|v| v.as_str())
             .map(|s| !s.is_empty())
-            .unwrap_or(false);
+            .unwrap_or(false)
+            || update_cfg
+                .and_then(|c| c.get("api_keys"))
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .any(|v| v.as_str().map(|s| !s.trim().is_empty()).unwrap_or(false))
+                })
+                .unwrap_or(false);
         if supplied {
             continue;
         }
         if let Some(cfg) = after.get_mut("config").and_then(|c| c.as_object_mut()) {
+            // A key from the old provider is worse than no key: it is sent to the new
+            // provider and rejected there, which reads as "the new provider is broken".
             cfg.remove("api_key");
+            cfg.remove("api_keys");
         }
     }
 }
@@ -213,12 +340,31 @@ fn drop_removed_vendor_endpoint(previous: &Value, updates: &Value, next: &mut Va
 /// Convenience: apply the full update pipeline (merge → clean) the way
 /// `update_config` does, returning the cleaned merged config.
 pub fn apply_update(previous: &Value, updates: &mut Value) -> Value {
+    apply_update_checked(previous, updates).unwrap_or_else(|_| {
+        // Callers that cannot fail (tests, the overrides file) get the best-effort config; the
+        // hard edges — too many keys — are surfaced by `apply_update_checked` at the HTTP edge.
+        let mut next = merge_config(previous, updates);
+        drop_stale_base_urls(&mut next);
+        drop_removed_vendor_endpoint(previous, updates, &mut next);
+        drop_replaced_credentials(previous, &mut next, updates);
+        let _ = normalize_api_keys(&mut next, updates);
+        next
+    })
+}
+
+/// [`apply_update`], but a key list that cannot be honoured is an error instead of a silent
+/// truncation. `/configure` uses this so a pasted 40-key list is a `400`, not a surprise.
+pub fn apply_update_checked(
+    previous: &Value,
+    updates: &mut Value,
+) -> std::result::Result<Value, String> {
     sync_embedding_dims(updates);
     let mut next = merge_config(previous, updates);
     drop_stale_base_urls(&mut next);
     drop_removed_vendor_endpoint(previous, updates, &mut next);
     drop_replaced_credentials(previous, &mut next, updates);
-    next
+    normalize_api_keys(&mut next, updates)?;
+    Ok(next)
 }
 
 /// Extract a mutable reference to a section's config object, if present.
@@ -497,5 +643,143 @@ mod legacy_vendor_migration_tests {
             next["systemone"]["config"]["openai_base_url"],
             json!("https://token.example/v1")
         );
+    }
+}
+
+#[cfg(test)]
+mod api_key_pool_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn with_llm_keys(keys: Value) -> Value {
+        json!({"llm": {"provider": "openai", "config": {"model": "gpt-4o", "api_keys": keys}}})
+    }
+
+    fn apply(previous: Value, mut updates: Value) -> Value {
+        apply_update_checked(&previous, &mut updates).expect("config applies")
+    }
+
+    #[test]
+    fn a_list_of_keys_is_stored_and_the_alias_follows_the_first() {
+        let next = apply(json!({}), with_llm_keys(json!(["sk-1", "sk-2", "sk-3"])));
+        let c = &next["llm"]["config"];
+        assert_eq!(c["api_keys"], json!(["sk-1", "sk-2", "sk-3"]));
+        // Every older reader still finds a key here, and it is the one rotation starts on.
+        assert_eq!(c["api_key"], json!("sk-1"));
+    }
+
+    #[test]
+    fn the_legacy_single_key_becomes_a_pool_of_one() {
+        let next = apply(
+            json!({}),
+            json!({"llm": {"provider": "openai", "config": {"api_key": "sk-only"}}}),
+        );
+        assert_eq!(next["llm"]["config"]["api_keys"], json!(["sk-only"]));
+        assert_eq!(next["llm"]["config"]["api_key"], json!("sk-only"));
+    }
+
+    #[test]
+    fn saving_a_list_replaces_the_previous_one() {
+        let previous = apply(json!({}), with_llm_keys(json!(["sk-1", "sk-2"])));
+        let next = apply(previous, with_llm_keys(json!(["sk-9"])));
+        assert_eq!(next["llm"]["config"]["api_keys"], json!(["sk-9"]));
+        assert_eq!(next["llm"]["config"]["api_key"], json!("sk-9"));
+    }
+
+    #[test]
+    fn a_stale_list_does_not_outvote_a_newly_supplied_single_key() {
+        // A build that predates pools edits the single field. The merged config still carries
+        // the old list, which must not win over the explicit instruction.
+        let previous = apply(json!({}), with_llm_keys(json!(["sk-old-1", "sk-old-2"])));
+        let next = apply(
+            previous,
+            json!({"llm": {"provider": "openai", "config": {"api_key": "sk-new"}}}),
+        );
+        assert_eq!(next["llm"]["config"]["api_keys"], json!(["sk-new"]));
+        assert_eq!(next["llm"]["config"]["api_key"], json!("sk-new"));
+    }
+
+    #[test]
+    fn an_update_that_says_nothing_about_keys_keeps_them() {
+        let previous = apply(json!({}), with_llm_keys(json!(["sk-1", "sk-2"])));
+        let next = apply(
+            previous,
+            json!({"llm": {"provider": "openai", "config": {"model": "gpt-4o-mini"}}}),
+        );
+        assert_eq!(next["llm"]["config"]["api_keys"], json!(["sk-1", "sk-2"]));
+        assert_eq!(next["llm"]["config"]["model"], json!("gpt-4o-mini"));
+    }
+
+    #[test]
+    fn blanks_are_dropped_and_repeats_collapse() {
+        // The same key twice is one quota twice; keeping both would halve the rotation's reach.
+        let next = apply(
+            json!({}),
+            with_llm_keys(json!(["sk-1", "  ", "sk-1", " sk-2 "])),
+        );
+        assert_eq!(next["llm"]["config"]["api_keys"], json!(["sk-1", "sk-2"]));
+    }
+
+    #[test]
+    fn too_many_keys_is_an_error_rather_than_a_silent_truncation() {
+        let many: Vec<String> = (0..crate::keyring::MAX_KEYS + 1)
+            .map(|i| format!("sk-{i}"))
+            .collect();
+        let mut updates = with_llm_keys(json!(many));
+        let err = apply_update_checked(&json!({}), &mut updates).unwrap_err();
+        assert!(err.contains("at most"), "{err}");
+        assert!(err.contains("llm"), "{err}");
+    }
+
+    #[test]
+    fn exactly_the_cap_is_accepted() {
+        let many: Vec<String> = (0..crate::keyring::MAX_KEYS)
+            .map(|i| format!("sk-{i}"))
+            .collect();
+        let next = apply(json!({}), with_llm_keys(json!(many)));
+        assert_eq!(
+            next["llm"]["config"]["api_keys"].as_array().unwrap().len(),
+            crate::keyring::MAX_KEYS
+        );
+    }
+
+    #[test]
+    fn switching_provider_drops_the_whole_pool_not_just_the_alias() {
+        // Keeping the old provider's keys would send them to the new provider, where they are
+        // rejected — which reads as "the new provider is broken".
+        let previous = apply(json!({}), with_llm_keys(json!(["sk-1", "sk-2"])));
+        let next = apply(
+            previous,
+            json!({"llm": {"provider": "anthropic", "config": {"model": "claude-haiku-4-5"}}}),
+        );
+        let c = &next["llm"]["config"];
+        assert!(c.get("api_keys").is_none(), "{c}");
+        assert!(c.get("api_key").is_none(), "{c}");
+    }
+
+    #[test]
+    fn switching_provider_keeps_a_replacement_pool() {
+        let previous = apply(json!({}), with_llm_keys(json!(["sk-1"])));
+        let next = apply(
+            previous,
+            json!({"llm": {"provider": "anthropic", "config": {"api_keys": ["ant-1", "ant-2"]}}}),
+        );
+        assert_eq!(next["llm"]["config"]["api_keys"], json!(["ant-1", "ant-2"]));
+        assert_eq!(next["llm"]["config"]["api_key"], json!("ant-1"));
+    }
+
+    #[test]
+    fn the_sections_inherit_nothing_at_merge_time() {
+        // Inheritance is a runtime rule (`pooled::resolve_keys`), not a config rewrite: the
+        // stored config must not grow keys the operator never typed.
+        let next = apply(
+            json!({}),
+            json!({
+                "llm": {"provider": "openai", "config": {"api_keys": ["sk-1", "sk-2"]}},
+                "embedder": {"provider": "openai", "config": {"model": "text-embedding-3-small"}}
+            }),
+        );
+        assert!(next["embedder"]["config"].get("api_key").is_none());
+        assert!(next["embedder"]["config"].get("api_keys").is_none());
     }
 }

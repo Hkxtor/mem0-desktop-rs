@@ -10,9 +10,11 @@ pub mod config;
 pub mod decision;
 pub mod desktop_settings;
 pub mod http;
+pub mod keyring;
 pub mod lock;
 pub mod logging;
 pub mod memory_bridge;
+pub mod pooled;
 pub mod store;
 pub mod store_auth;
 

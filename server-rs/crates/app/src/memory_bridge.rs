@@ -9,7 +9,7 @@
 
 use std::path::Path;
 
-use mem0::{build_embedder, build_llm, Memory, MemoryConfig};
+use mem0::{Memory, MemoryConfig};
 use mem0_core::error::{Mem0Error, Result};
 use serde_json::{json, Value};
 
@@ -47,8 +47,19 @@ pub fn build_memory(config_json: &Value, data_dir: &Path) -> Result<Memory> {
         .and_then(|v| v.as_u64())
         .map(|d| d as usize);
 
-    let embedder = build_embedder(&cfg.embedder.provider, &cfg.embedder.config)
-        .map_err(|e| wrap_build("embedder", &cfg.embedder.provider, e))?;
+    // Both sections may spend a pool of keys: several keys of the same provider, so one
+    // exhausted quota does not fail every write. `embedder` and `systemone` may also name no
+    // keys at all and inherit the LLM's — see `pooled::resolve_keys`.
+    let (embedder_keys, embedder_inherited) =
+        crate::pooled::resolve_keys(config_json, crate::pooled::EMBEDDER, &cfg.embedder.provider);
+    let embedder = crate::pooled::build_embedder(
+        &cfg.embedder.provider,
+        &cfg.embedder.config,
+        crate::pooled::EMBEDDER,
+        embedder_keys,
+        embedder_inherited,
+    )
+    .map_err(|e| wrap_build("embedder", &cfg.embedder.provider, e))?;
     let embedder_dims = embedder.dims();
 
     // Mirror the Python server: embedder dims are the single source of truth and are
@@ -60,8 +71,16 @@ pub fn build_memory(config_json: &Value, data_dir: &Path) -> Result<Memory> {
     }
     let dims = dims.unwrap_or(embedder_dims);
 
-    let llm = build_llm(&cfg.llm.provider, &cfg.llm.config)
-        .map_err(|e| wrap_build("llm", &cfg.llm.provider, e))?;
+    let (llm_keys, _) =
+        crate::pooled::resolve_keys(config_json, crate::pooled::LLM, &cfg.llm.provider);
+    let llm = crate::pooled::build_llm(
+        &cfg.llm.provider,
+        &cfg.llm.config,
+        crate::pooled::LLM,
+        llm_keys,
+        false,
+    )
+    .map_err(|e| wrap_build("llm", &cfg.llm.provider, e))?;
 
     let store = vector_sqlitevec::build(data_dir, &collection, dims)
         .map_err(|e| Mem0Error::configuration(format!("vector store: {e}")))?;
@@ -76,6 +95,15 @@ pub fn build_memory(config_json: &Value, data_dir: &Path) -> Result<Memory> {
 /// Memory from the result and rejects the update if the build fails.
 pub fn compute_updated_config(previous: &Value, mut updates: Value) -> Value {
     apply_update(previous, &mut updates)
+}
+
+/// Same, but a key list that cannot be honoured is an error. `/configure` uses this so a pasted
+/// list of forty keys is a `400` naming the limit, not a truncated pool the operator never chose.
+pub fn compute_updated_config_checked(
+    previous: &Value,
+    mut updates: Value,
+) -> std::result::Result<Value, String> {
+    crate::config::apply_update_checked(previous, &mut updates)
 }
 
 /// Deep-merge without cleanup (exposed for tests and for the overrides file path,

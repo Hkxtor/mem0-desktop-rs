@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
@@ -17,6 +18,8 @@ import { toast } from "@/components/ui/use-toast";
 import { getErrorMessage } from "@/lib/error-message";
 import { api } from "@/utils/api";
 import {
+  KEY_ENDPOINTS,
+  type KeyStatusResponse,
   MEMORY_ENDPOINTS,
   SERVER_ENDPOINTS,
   SYSTEMONE_ENDPOINTS,
@@ -24,12 +27,13 @@ import {
 import {
   buildProviderConfig,
   DEFAULT_EMBEDDING_DIMS,
+  keyPoolSummary,
+  parseApiKeys,
   EXAMPLE_EMBEDDER_MODEL,
   EXAMPLE_MODEL,
   embedderKeyHint,
   getEffectiveConfig,
   readBaseUrl,
-  resolveEmbedderApiKey,
 } from "@/utils/self-hosted-config";
 import { useAuth } from "@/hooks/use-auth";
 import { useApiQuery } from "@/hooks/use-api-query";
@@ -56,6 +60,8 @@ export default function ConfigurationPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [llmProvider, setLlmProvider] = useState("");
   const [llmModel, setLlmModel] = useState("");
+  // One key per line. The server stores a list; the field shows what was typed, never what is
+  // stored (the stored values come back redacted).
   const [llmApiKey, setLlmApiKey] = useState("");
   const [llmBaseUrl, setLlmBaseUrl] = useState("");
   const [embedderProvider, setEmbedderProvider] = useState("");
@@ -135,6 +141,18 @@ export default function ConfigurationPage() {
       config.vector_store?.config?.embedding_model_dims;
     setEmbeddingDims((current) => current || (dims ? String(dims) : ""));
   }, [config]);
+
+  // Runtime pool state: which keys exist, which are parked after a 429, which were rejected.
+  // It is not in `/configure` because that reports the configuration, and a cooldown is not
+  // configuration.
+  const { data: keyStatus, refetch: refetchKeyStatus } =
+    useApiQuery<KeyStatusResponse>(
+      async () => {
+        const res = await api.get<KeyStatusResponse>(KEY_ENDPOINTS.STATUS);
+        return res.data;
+      },
+      { errorToast: "无法读取密钥池状态" },
+    );
 
   type DesktopSettings = {
     autostart: boolean;
@@ -278,18 +296,16 @@ export default function ConfigurationPage() {
       const llm = buildProviderConfig({
         provider: llmProvider,
         model: llmModel,
-        apiKey: llmApiKey,
+        apiKeys: parseApiKeys(llmApiKey),
         baseUrl: llmBaseUrl,
       });
+      // No copying of the LLM's keys into this section: the server inherits the LLM's pool when
+      // this one names none and shares its provider, and a copy would go stale the moment the
+      // LLM's keys change (see docs/adr/0001-api-key-pools.md).
       const embedder = buildProviderConfig({
         provider: embedderProvider,
         model: embedderModel,
-        apiKey: resolveEmbedderApiKey({
-          embedderApiKey,
-          llmApiKey,
-          embedderProvider,
-          llmProvider,
-        }),
+        apiKeys: parseApiKeys(embedderApiKey),
         baseUrl: embedderBaseUrl,
         embeddingDims: embeddingDims ? Number(embeddingDims) : undefined,
       });
@@ -311,9 +327,10 @@ export default function ConfigurationPage() {
       if (systemoneProvider === SYSTEMONE_DECISION) {
         // The decision API is not OpenAI-compatible: it wants a plain `base_url` and the
         // noul threshold, not a {provider}_base_url key.
+        const systemoneKeys = parseApiKeys(systemoneApiKey);
         const decisionConfig: Record<string, unknown> = {
           model: systemoneModel || undefined,
-          api_key: systemoneApiKey || undefined,
+          api_keys: systemoneKeys.length > 0 ? systemoneKeys : undefined,
         };
         if (systemoneBaseUrl.trim()) {
           decisionConfig.base_url = systemoneBaseUrl.trim();
@@ -331,18 +348,15 @@ export default function ConfigurationPage() {
           ? buildProviderConfig({
               provider: systemoneProvider,
               model: systemoneModel,
-              apiKey: resolveEmbedderApiKey({
-                embedderApiKey: systemoneApiKey,
-                llmApiKey,
-                embedderProvider: systemoneProvider,
-                llmProvider,
-              }),
+              apiKeys: parseApiKeys(systemoneApiKey),
               baseUrl: systemoneBaseUrl,
             })
           : { provider: "", config: {} };
       }
 
       await api.post(MEMORY_ENDPOINTS.CONFIGURE, newConfig);
+      // The pool was rebuilt from the new keys, so the state reported here is fresh.
+      await refetchKeyStatus();
       toast({ title: "配置已保存", variant: "success" });
     } catch (error) {
       toast({
@@ -386,7 +400,7 @@ export default function ConfigurationPage() {
                 }}
                 disabled={!isAdmin || !providers}
               >
-                <SelectTrigger>
+                <SelectTrigger data-testid="llm-provider">
                   <SelectValue placeholder="选择 provider">
                     {llmProvider || undefined}
                   </SelectValue>
@@ -414,17 +428,25 @@ export default function ConfigurationPage() {
           </div>
           <div className="space-y-1">
             <Label className="text-xs">API 密钥</Label>
-            <Input
-              type="password"
-              placeholder="sk-..."
+            <Textarea
+              data-testid="llm-api-keys"
+              rows={2}
+              placeholder={"一行一把，可填多把\nsk-...\nsk-..."}
               value={llmApiKey}
               onChange={(e) => setLlmApiKey(e.target.value)}
               disabled={!isAdmin}
+              className="h-16 font-mono text-xs"
             />
+            <p className="text-xs text-onSurface-default-tertiary">
+              {keyStatus?.llm && keyStatus.llm.keys > 0
+                ? `${keyPoolSummary(keyStatus.llm)}。留空表示沿用已保存的密钥。`
+                : "可填多把同 provider 的密钥：请求在它们之间轮换，某一把被限流（429）就先歇着，其余照常用。"}
+            </p>
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Base URL</Label>
             <Input
+              data-testid="llm-base-url"
               placeholder="留空则用该 provider 的默认值"
               value={llmBaseUrl}
               onChange={(e) => setLlmBaseUrl(e.target.value)}
@@ -462,7 +484,7 @@ export default function ConfigurationPage() {
                 }}
                 disabled={!isAdmin || !providers}
               >
-                <SelectTrigger>
+                <SelectTrigger data-testid="embedder-provider">
                   <SelectValue placeholder="选择 provider">
                     {embedderProvider || undefined}
                   </SelectValue>
@@ -491,27 +513,34 @@ export default function ConfigurationPage() {
           </div>
           <div className="space-y-1">
             <Label className="text-xs">API 密钥</Label>
-            <Input
-              type="password"
+            <Textarea
+              data-testid="embedder-api-keys"
+              rows={2}
               placeholder={
-                serverHasEmbedderKey ? "留空表示沿用已保存的密钥" : "sk-..."
+                serverHasEmbedderKey
+                  ? "留空表示沿用已保存的密钥"
+                  : "一行一把，留空则复用 LLM 的密钥"
               }
               value={embedderApiKey}
               onChange={(e) => setEmbedderApiKey(e.target.value)}
               disabled={!isAdmin}
+              className="h-16 font-mono text-xs"
             />
             <p className="text-xs text-onSurface-default-tertiary">
-              {embedderKeyHint({
-                serverHasKey: serverHasEmbedderKey,
-                embedderProvider,
-                llmProvider,
-              })}
+              {keyStatus?.embedder?.inherited && keyStatus.embedder.keys > 0
+                ? `${keyPoolSummary(keyStatus.embedder)}。`
+                : embedderKeyHint({
+                    serverHasKey: serverHasEmbedderKey,
+                    embedderProvider,
+                    llmProvider,
+                  })}
             </p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label className="text-xs">维度</Label>
               <Input
+                data-testid="embedding-dims"
                 type="number"
                 inputMode="numeric"
                 placeholder="1536"
@@ -526,6 +555,7 @@ export default function ConfigurationPage() {
             <div className="space-y-1">
               <Label className="text-xs">Base URL</Label>
               <Input
+                data-testid="embedder-base-url"
                 placeholder="留空则用该 provider 的默认值"
                 value={embedderBaseUrl}
                 onChange={(e) => setEmbedderBaseUrl(e.target.value)}
@@ -605,24 +635,30 @@ export default function ConfigurationPage() {
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label className="text-xs">API 密钥</Label>
-              <Input
-                type="password"
+              <Textarea
                 data-testid="systemone-api-key"
+                rows={2}
                 placeholder={
-                  serverHasSystemoneKey ? "留空表示沿用已保存的密钥" : "sk-..."
+                  serverHasSystemoneKey
+                    ? "留空表示沿用已保存的密钥"
+                    : "一行一把，留空则复用 LLM 的密钥"
                 }
                 value={systemoneApiKey}
                 onChange={(e) => setSystemoneApiKey(e.target.value)}
                 disabled={!isAdmin || !systemoneProvider}
+                className="h-16 font-mono text-xs"
               />
               <p className="text-xs text-onSurface-default-tertiary">
-                {systemoneProvider
-                  ? embedderKeyHint({
-                      serverHasKey: serverHasSystemoneKey,
-                      embedderProvider: systemoneProvider,
-                      llmProvider,
-                    })
-                  : "关闭分类时不需要密钥。"}
+                {!systemoneProvider
+                  ? "关闭分类时不需要密钥。"
+                  : keyStatus?.systemone?.inherited &&
+                      keyStatus.systemone.keys > 0
+                    ? `${keyPoolSummary(keyStatus.systemone)}。`
+                    : embedderKeyHint({
+                        serverHasKey: serverHasSystemoneKey,
+                        embedderProvider: systemoneProvider,
+                        llmProvider,
+                      })}
               </p>
             </div>
             <div className="space-y-1">

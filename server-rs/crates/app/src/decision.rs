@@ -60,14 +60,28 @@ const INSTRUCTIONS: &[(&str, &str)] = &[
 pub struct DecisionClient {
     http: reqwest::Client,
     base_url: String,
-    api_key: String,
+    /// The keys this section may spend, in rotation order. Empty for an endpoint that needs
+    /// no credential (a local proxy), which keeps that case working exactly as before.
+    keys: Vec<String>,
+    /// Rotation and cooldown state, shared with `GET /keys/status`. `None` when there is no
+    /// credential to rotate.
+    ring: Option<std::sync::Arc<crate::keyring::Keyring>>,
     model: String,
     noul_threshold: f64,
 }
 
 impl DecisionClient {
     /// Build from the `systemone.config` block.
-    pub fn from_config(cfg: &Value) -> Result<Self> {
+    /// The model a config will actually use, without building a client. The Configuration
+    /// page shows what is in effect, and a blank field is not a broken one.
+    pub fn effective_model(cfg: &Value) -> &'static str {
+        let _ = cfg;
+        DEFAULT_MODEL
+    }
+
+    /// Build the client. `keys` comes from [`crate::pooled::resolve_keys`], so a section that
+    /// names none but shares the LLM's provider arrives here holding the LLM's keys.
+    pub fn from_config(cfg: &Value, keys: Vec<String>, inherited: bool) -> Result<Self> {
         // The backend used to speak a second vendor's protocol, which is gone. A config that
         // still names it is rejected rather than quietly reinterpreted: its endpoint and key
         // belong to a service that is no longer reachable from here, and sending memory text
@@ -100,11 +114,6 @@ impl DecisionClient {
             .filter(|s| !s.is_empty())
             .unwrap_or(DEFAULT_MODEL)
             .to_string();
-        let api_key = cfg
-            .get("api_key")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string();
         let noul_threshold = cfg
             .get("noul_threshold")
             .and_then(|v| v.as_f64())
@@ -118,10 +127,21 @@ impl DecisionClient {
             .timeout(std::time::Duration::from_secs(60))
             .build()
             .map_err(|e| Mem0Error::configuration(format!("systemone (systemone): {e}")))?;
+        let ring = if keys.is_empty() {
+            crate::pooled::clear(crate::pooled::SYSTEMONE);
+            None
+        } else {
+            Some(crate::pooled::install(
+                crate::pooled::SYSTEMONE,
+                std::sync::Arc::new(crate::keyring::Keyring::new(keys.clone())),
+                inherited,
+            ))
+        };
         Ok(Self {
             http,
             base_url,
-            api_key,
+            keys,
+            ring,
             model,
             noul_threshold,
         })
@@ -168,12 +188,48 @@ impl DecisionClient {
     /// Classify, returning both the categories and the raw answer map. The raw map is what
     /// `/systemone/test` shows, so a mis-tuned threshold is diagnosable without server logs.
     pub async fn classify_detailed(&self, text: &str) -> Result<(Vec<String>, Value)> {
+        let Some(ring) = self.ring.clone() else {
+            return self.attempt(None, text).await;
+        };
+        // Same rotation policy as the LLM and embedder pools: a rate-limited key is parked,
+        // a rejected one is retired, and anything else is the caller's problem.
+        let mut tried: Vec<usize> = Vec::new();
+        loop {
+            let idx = match crate::pooled::pick_key(&ring, &tried).await {
+                Ok(idx) => idx,
+                Err(why) => {
+                    return Err(crate::pooled::exhausted(
+                        crate::pooled::SYSTEMONE,
+                        why,
+                        &ring.refusals(),
+                    ))
+                }
+            };
+            match self.attempt(Some(idx), text).await {
+                Ok(out) => {
+                    ring.advance(idx);
+                    return Ok(out);
+                }
+                Err(e) => {
+                    if crate::pooled::absorb(crate::pooled::SYSTEMONE, &ring, idx, &e, &tried)
+                        == crate::pooled::Next::Return
+                    {
+                        return Err(e);
+                    }
+                    tried.push(idx);
+                }
+            }
+        }
+    }
+
+    /// One attempt, with the key at `idx` (or no key at all).
+    async fn attempt(&self, idx: Option<usize>, text: &str) -> Result<(Vec<String>, Value)> {
         let body = self.request_body(text);
         let endpoint = self.endpoint();
         let mut req = self.http.post(&endpoint).json(&body);
-        if !self.api_key.is_empty() {
+        if let Some(key) = idx.and_then(|i| self.keys.get(i)) {
             // The API keys on a header of its own; a bearer token is rejected.
-            req = req.header("x-goog-api-key", &self.api_key);
+            req = req.header("x-goog-api-key", key);
         }
         let resp = req.send().await.map_err(|e| {
             Mem0Error::llm(format!(
@@ -181,12 +237,21 @@ impl DecisionClient {
             ))
         })?;
         let status = resp.status();
+        let retry_after = mem0_core::error::parse_retry_after(
+            resp.headers()
+                .get(reqwest::header::RETRY_AFTER)
+                .and_then(|v| v.to_str().ok()),
+        );
         let raw = resp.text().await.unwrap_or_default();
         if !status.is_success() {
-            return Err(Mem0Error::llm(format!(
-                "SystemOne decision HTTP {status} for POST {endpoint}: {}",
-                provider_message(&raw)
-            )));
+            return Err(Mem0Error::llm_http(
+                status.as_u16(),
+                retry_after,
+                format!(
+                    "SystemOne decision HTTP {status} for POST {endpoint}: {}",
+                    provider_message(&raw)
+                ),
+            ));
         }
         let parsed: Value = serde_json::from_str(&raw).map_err(|e| {
             Mem0Error::llm(format!(
@@ -267,7 +332,7 @@ mod tests {
     use super::*;
 
     fn client(cfg: Value) -> DecisionClient {
-        DecisionClient::from_config(&cfg).expect("client")
+        DecisionClient::from_config(&cfg, Vec::new(), false).expect("client")
     }
 
     #[test]
@@ -420,7 +485,7 @@ mod tests {
     }
 
     fn client_err(cfg: Value) -> String {
-        DecisionClient::from_config(&cfg)
+        DecisionClient::from_config(&cfg, Vec::new(), false)
             .err()
             .expect("must reject")
             .to_string()

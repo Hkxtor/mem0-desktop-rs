@@ -152,8 +152,12 @@ fn effective_model(section: &Value) -> Value {
         return Value::String(model.to_string());
     }
     if let Some(cfg) = section.get("config") {
-        if let Ok(client) = crate::decision::DecisionClient::from_config(cfg) {
-            return Value::String(client.model().to_string());
+        if section.get("provider").and_then(|p| p.as_str())
+            == Some(crate::categories::DECISION_PROVIDER)
+        {
+            return Value::String(
+                crate::decision::DecisionClient::effective_model(cfg).to_string(),
+            );
         }
     }
     Value::Null

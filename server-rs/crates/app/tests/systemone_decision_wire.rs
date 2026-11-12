@@ -5,6 +5,10 @@
 //! request (path, auth header, field names, no unknown fields) and read the real answer
 //! shape back.
 
+// The gate below is a std mutex held across await on purpose: it only serializes tests that
+// share the process-wide key-pool registry.
+#![allow(clippy::await_holding_lock)]
+
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
@@ -19,6 +23,8 @@ use tower::ServiceExt;
 #[derive(Clone, Default)]
 struct Mock {
     answers: Arc<Mutex<Value>>,
+    /// Keys that answer 429 instead of the scripted answer (pool rotation tests).
+    limited: Arc<Mutex<Vec<String>>>,
     seen: Arc<Mutex<Vec<Value>>>,
     goog_key: Arc<Mutex<Vec<Option<String>>>>,
     authorization: Arc<Mutex<Vec<Option<String>>>>,
@@ -32,12 +38,19 @@ async fn handler(
     Json(body): Json<Value>,
 ) -> (StatusCode, Json<Value>) {
     mock.seen.lock().unwrap().push(body);
-    mock.goog_key.lock().unwrap().push(
-        headers
-            .get("x-goog-api-key")
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_string),
-    );
+    let key = headers
+        .get("x-goog-api-key")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
+    mock.goog_key.lock().unwrap().push(key.clone());
+    if let Some(key) = &key {
+        if mock.limited.lock().unwrap().iter().any(|k| k == key) {
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(json!({"error": {"message": "quota exceeded"}})),
+            );
+        }
+    }
     mock.authorization.lock().unwrap().push(
         headers
             .get(axum::http::header::AUTHORIZATION)
@@ -72,16 +85,30 @@ async fn start(answers: Value, status: u16, error_body: Option<Value>) -> (Mock,
     (mock, format!("http://{addr}"))
 }
 
+/// The key-pool registry is process-wide, so tests that configure the app must not interleave:
+/// one test's single key would otherwise be the next test's pool. The guard lives as long as the
+/// app does, which is the test body.
 struct App {
     _dir: tempfile::TempDir,
+    _gate: std::sync::MutexGuard<'static, ()>,
     router: Router,
+}
+
+fn gate() -> std::sync::MutexGuard<'static, ()> {
+    static GATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    GATE.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 fn app() -> App {
     unsafe { std::env::set_var("AUTH_DISABLED", "true") };
     let dir = tempfile::tempdir().unwrap();
+    mem0_desktop_rs::pooled::reset();
     let router = mem0_desktop_rs::app_for_test(dir.path().to_path_buf());
-    App { _dir: dir, router }
+    App {
+        _dir: dir,
+        _gate: gate(),
+        router,
+    }
 }
 
 async fn call(app: &Router, method: &str, uri: &str, body: Option<Value>) -> (StatusCode, Value) {
@@ -288,6 +315,7 @@ async fn a_rejected_key_still_stores_the_memory_untagged() {
 /// key — to a service this build no longer calls.
 #[tokio::test]
 async fn a_stored_config_for_the_removed_vendor_is_migrated_on_save() {
+    let _gate = gate();
     let (mock, base) = start(json!({"food": {"type": "noul", "noul": 0.9}}), 200, None).await;
 
     let dir = tempfile::tempdir().unwrap();
@@ -360,6 +388,7 @@ async fn a_stored_config_for_the_removed_vendor_is_migrated_on_save() {
 /// client falls back to Google instead of posting to the removed service.
 #[tokio::test]
 async fn an_echoed_legacy_endpoint_is_dropped_rather_than_reused() {
+    let _gate = gate();
     let dir = tempfile::tempdir().unwrap();
     let legacy = json!({
         "version": "v1.1",
@@ -403,4 +432,70 @@ async fn an_echoed_legacy_endpoint_is_dropped_rather_than_reused() {
         error.contains("generativelanguage.googleapis.com"),
         "the default endpoint must be visible: {tested}"
     );
+}
+
+/// The decision endpoint is the third place a key pool has to work, and the one with the most
+/// custom wire shape (`x-goog-api-key`, not a bearer): a rotation implemented only for chat
+/// completions would leave classification failing on the first exhausted key.
+#[tokio::test]
+async fn a_decision_pool_rotates_past_a_rate_limited_key() {
+    let (mock, base) = start(
+        json!({"food": {"type": "noul", "noul": 0.9, "confidence": 0.95}}),
+        200,
+        None,
+    )
+    .await;
+    // The first key is out of quota; the mock answers 429 for it and 200 for the rest.
+    mock.limited
+        .lock()
+        .unwrap()
+        .push("AIza-limited".to_string());
+
+    let a = app();
+    let router = a.router.clone();
+    let cfg = json!({
+        "version": "v1.1",
+        "llm": {"provider": "mock", "config": {}},
+        "embedder": {"provider": "mock", "config": {"embedding_dims": 10}},
+        "vector_store": {
+            "provider": "sqlite-vec",
+            "config": {"collection_name": "mem0", "embedding_model_dims": 10},
+        },
+        "systemone": {
+            "provider": "systemone",
+            "config": {"api_keys": ["AIza-limited", "AIza-good"], "base_url": base},
+        },
+    });
+    let (status, body) = call(&router, "POST", "/configure", Some(cfg)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let (status, classified) = call(
+        &router,
+        "POST",
+        "/systemone/classify",
+        Some(json!({"text": "I cooked ramen"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{classified}");
+    assert_eq!(classified["categories"], json!(["food"]), "{classified}");
+
+    // Both keys were tried, in order, on the header this API actually uses.
+    let keys: Vec<String> = mock
+        .goog_key
+        .lock()
+        .unwrap()
+        .iter()
+        .flatten()
+        .cloned()
+        .collect();
+    assert_eq!(
+        keys.join(","),
+        "AIza-limited,AIza-good",
+        "the pool must rotate on x-goog-api-key"
+    );
+    // And the parked key is visible without naming it.
+    let (_, state) = call(&router, "GET", "/keys/status", None).await;
+    assert_eq!(state["systemone"]["keys"], json!(2), "{state}");
+    assert_eq!(state["systemone"]["cooling"], json!(1), "{state}");
+    assert!(!state.to_string().contains("AIza-"), "{state}");
 }

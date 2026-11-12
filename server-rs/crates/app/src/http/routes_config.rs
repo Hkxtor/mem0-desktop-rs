@@ -279,7 +279,10 @@ pub async fn set_config(
     validate_embedding_dimensions(&state, &update).await?;
 
     let previous = load_persisted_config(&state);
-    let next = crate::memory_bridge::compute_updated_config(&previous, update);
+    // A key list that cannot be honoured is the caller's mistake: 400 before anything is built,
+    // so a rejected update leaves the working configuration exactly as it was.
+    let next = crate::memory_bridge::compute_updated_config_checked(&previous, update)
+        .map_err(|e| ApiError::bad_request(format!("Configuration rejected: {e}")))?;
     let providers = serde_json::json!({
         "llm": next.get("llm").and_then(|v| v.get("provider")).cloned(),
         "embedder": next.get("embedder").and_then(|v| v.get("provider")).cloned(),

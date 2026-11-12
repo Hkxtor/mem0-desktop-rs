@@ -29,6 +29,28 @@ export const SERVER_ENDPOINTS = {
   DESKTOP: "/settings/desktop",
 } as const;
 
+/** API key pool state for one model section. Never contains a key. */
+export type KeyPoolStatus = {
+  keys: number;
+  cooling: number;
+  revoked: number;
+  /** Seconds until the earliest parked key comes back; 0 when none is parked. */
+  next_available_in: number;
+  /** This section spends the LLM section's keys because it named none of its own. */
+  inherited: boolean;
+  last_error: string | null;
+};
+
+export type KeyStatusResponse = {
+  llm: KeyPoolStatus;
+  embedder: KeyPoolStatus;
+  systemone: KeyPoolStatus;
+};
+
+export const KEY_ENDPOINTS = {
+  STATUS: "/keys/status",
+} as const;
+
 export const SYSTEMONE_ENDPOINTS = {
   CATEGORIES: "/systemone/categories",
   COUNTS: "/systemone/counts",
