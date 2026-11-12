@@ -41,29 +41,13 @@ type BundledProviders = {
 
 // Mirrors BUNDLED_SYSTEMONE_PROVIDERS in server-rs/crates/app/src/http/routes_config.rs.
 // Kept local because /configure/providers is contract-locked by the golden tests.
-// `systemone` is the SystemOne decision API (state + typed questions), not a chat model.
+// `systemone` is the decision API (one input + typed questions, one answer each), not a chat
+// model: POST {base_url}/v1beta/decisions, `x-goog-api-key`, `input`, and `noul` is
+// P(the category applies). See decision.rs — the API answers 400 for unknown fields.
 const SYSTEMONE_PROVIDERS = ["openai", "anthropic", "gemini", "systemone"];
 const SYSTEMONE_DECISION = "systemone";
-// Which decision API sits under provider "systemone". The two speak the same shape but
-// disagree on the wire and on what the `noul` number means (see decision.rs):
-// - startlux: POST {base_url}, bearer key, `state`, noul = P(category does NOT apply)
-// - gemini:   POST {base_url}/v1beta/decisions, `x-goog-api-key`, `input`, noul = P(applies)
-const SYSTEMONE_VENDORS = ["startlux", "gemini"] as const;
-type SystemoneVendor = (typeof SYSTEMONE_VENDORS)[number];
-const VENDOR_LABEL: Record<SystemoneVendor, string> = {
-  startlux: "StartLux Decision",
-  gemini: "Gemini Decision",
-};
-// StartLux has no default endpoint on purpose: naming a vendor-less decision API would send
-// memory text somewhere the operator never chose. Gemini is a named service, so it does.
-const SYSTEMONE_DEFAULT_BASE_URL: Record<SystemoneVendor, string> = {
-  startlux: "",
-  gemini: "https://generativelanguage.googleapis.com",
-};
-const SYSTEMONE_DEFAULT_MODEL: Record<SystemoneVendor, string> = {
-  startlux: "startlux-decision-27b-autothink",
-  gemini: "gemini-decision-1",
-};
+const SYSTEMONE_DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com";
+const SYSTEMONE_DEFAULT_MODEL = "gemini-decision-1";
 // Radix Select cannot hold an empty string as a real choice.
 const SYSTEMONE_OFF = "__off__";
 
@@ -87,13 +71,8 @@ export default function ConfigurationPage() {
   const [systemoneApiKey, setSystemoneApiKey] = useState("");
   const [systemoneBaseUrl, setSystemoneBaseUrl] = useState("");
   const [serverHasSystemoneKey, setServerHasSystemoneKey] = useState(false);
-  // Which decision protocol, when the provider is the decision backend. Empty means the
-  // server-side default (startlux), so an existing configuration keeps working untouched.
-  const [systemoneVendor, setSystemoneVendor] = useState<SystemoneVendor | "">(
-    "",
-  );
-  // Only meaningful for the decision backend: how much probability counts as "applies".
-  // The direction differs per vendor, which is why the helper text is vendor-aware.
+  // Only meaningful for the decision backend: the probability at which a category is
+  // applied (`noul` is P(the condition holds), so a higher threshold tags fewer memories).
   const [systemoneThreshold, setSystemoneThreshold] = useState("0.5");
   const [isTestingSystemone, setIsTestingSystemone] = useState(false);
   const [systemoneTest, setSystemoneTest] = useState<{
@@ -144,10 +123,6 @@ export default function ConfigurationPage() {
       (current) => current || config.systemone?.config?.model || "",
     );
     setSystemoneBaseUrl((current) => current || readBaseUrl(config.systemone));
-    const vendor = config.systemone?.config?.vendor;
-    if (vendor === "gemini" || vendor === "startlux") {
-      setSystemoneVendor((current) => current || vendor);
-    }
     setServerHasSystemoneKey(!!config.systemone?.config?.api_key);
     const threshold = config.systemone?.config?.noul_threshold;
     if (typeof threshold === "number") {
@@ -336,18 +311,10 @@ export default function ConfigurationPage() {
       if (systemoneProvider === SYSTEMONE_DECISION) {
         // The decision API is not OpenAI-compatible: it wants a plain `base_url` and the
         // noul threshold, not a {provider}_base_url key.
-        const vendor: SystemoneVendor = systemoneVendor || "startlux";
         const decisionConfig: Record<string, unknown> = {
-          // Always sent, so switching vendor is an explicit change on the wire and the
-          // server-side cleanup can see it.
-          vendor,
           model: systemoneModel || undefined,
           api_key: systemoneApiKey || undefined,
         };
-        // `think_mode` is a StartLux parameter; Gemini rejects unknown fields.
-        if (vendor === "startlux") {
-          decisionConfig.think_mode = "auto";
-        }
         if (systemoneBaseUrl.trim()) {
           decisionConfig.base_url = systemoneBaseUrl.trim();
         }
@@ -626,7 +593,7 @@ export default function ConfigurationPage() {
                 data-testid="systemone-model"
                 placeholder={
                   systemoneProvider === SYSTEMONE_DECISION
-                    ? SYSTEMONE_DEFAULT_MODEL[systemoneVendor || "startlux"]
+                    ? SYSTEMONE_DEFAULT_MODEL
                     : (EXAMPLE_MODEL[systemoneProvider] ?? "gpt-4o-mini")
                 }
                 value={systemoneModel}
@@ -664,9 +631,7 @@ export default function ConfigurationPage() {
                 data-testid="systemone-base-url"
                 placeholder={
                   systemoneProvider === SYSTEMONE_DECISION
-                    ? SYSTEMONE_DEFAULT_BASE_URL[
-                        systemoneVendor || "startlux"
-                      ] || "必填：该决策 API 的完整地址"
+                    ? SYSTEMONE_DEFAULT_BASE_URL
                     : "留空则用该 provider 的默认值"
                 }
                 value={systemoneBaseUrl}
@@ -676,48 +641,21 @@ export default function ConfigurationPage() {
             </div>
           </div>
           {systemoneProvider === SYSTEMONE_DECISION && (
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs">Decision API</Label>
-                <Select
-                  value={systemoneVendor || "startlux"}
-                  onValueChange={(v) =>
-                    setSystemoneVendor(v as SystemoneVendor)
-                  }
-                  disabled={!isAdmin}
-                >
-                  <SelectTrigger data-testid="systemone-vendor">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {SYSTEMONE_VENDORS.map((v) => (
-                      <SelectItem key={v} value={v}>
-                        {VENDOR_LABEL[v]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Noul 阈值</Label>
-                <Input
-                  data-testid="systemone-threshold"
-                  inputMode="decimal"
-                  placeholder="0.5"
-                  value={systemoneThreshold}
-                  onChange={(e) =>
-                    setSystemoneThreshold(
-                      e.target.value.replace(/[^0-9.]/g, ""),
-                    )
-                  }
-                  disabled={!isAdmin}
-                />
-                <p className="text-xs text-onSurface-default-tertiary">
-                  {systemoneVendor === "gemini"
-                    ? "某个分类的「命中」概率达到此值时打上该标签。调低会打得更多，调高会打得更少。"
-                    : "模型给出的「不适用」概率低于此值时，该分类才算命中。调高会打得更多，调低会打得更少。"}
-                </p>
-              </div>
+            <div className="max-w-[200px] space-y-1">
+              <Label className="text-xs">Noul 阈值</Label>
+              <Input
+                data-testid="systemone-threshold"
+                inputMode="decimal"
+                placeholder="0.5"
+                value={systemoneThreshold}
+                onChange={(e) =>
+                  setSystemoneThreshold(e.target.value.replace(/[^0-9.]/g, ""))
+                }
+                disabled={!isAdmin}
+              />
+              <p className="text-xs text-onSurface-default-tertiary">
+                某个分类的「命中」概率达到此值时打上该标签。调低会打得更多，调高会打得更少。
+              </p>
             </div>
           )}
           {systemoneTest && (

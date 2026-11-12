@@ -1,10 +1,9 @@
-//! The Gemini vendor of the decision backend, against a local mock.
+//! The decision backend, against a local mock of Google's `decisions` API.
 //!
-//! Google's decision API is the same *shape* as StartLux's — one input, typed questions,
-//! one answer each — but differs everywhere that matters: the RPC path, the auth header,
-//! the field that carries the text, and the meaning of the `noul` number. A test that only
-//! checked the parsed categories would pass with the polarity inverted, so these tests
-//! assert the outgoing request and read the real answer shape back.
+//! One input plus typed questions, one answer each. A test that only checked the parsed
+//! categories would pass with the polarity inverted, so these tests assert the outgoing
+//! request (path, auth header, field names, no unknown fields) and read the real answer
+//! shape back.
 
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -118,8 +117,8 @@ fn gemini_config(base_url: &str) -> Value {
     })
 }
 
-/// A high `noul` means the category applies. This is the assertion that fails if the
-/// StartLux comparison is reused: the same answers would produce the complement set.
+/// A high `noul` means the category applies. Inverting this comparison still stores,
+/// still exports, and still looks like an answer — so it is asserted directly.
 #[tokio::test]
 async fn a_high_noul_tags_the_category() {
     let (mock, base) = start(
@@ -154,7 +153,7 @@ async fn a_high_noul_tags_the_category() {
         "{added}"
     );
 
-    // The wire: Gemini's path, Gemini's auth header, Gemini's field name, no think_mode.
+    // The wire: the RPC path, the auth header, the field name, and nothing extra.
     let seen = mock.seen.lock().unwrap().clone();
     assert_eq!(seen.len(), 1, "{seen:?}");
     let sent = &seen[0];
@@ -166,11 +165,11 @@ async fn a_high_noul_tags_the_category() {
     assert_eq!(sent["model"], json!("gemini-decision-1"), "{sent}");
     assert!(
         sent.get("state").is_none(),
-        "`state` is StartLux's field: {sent}"
+        "`state` is not a field of this API: {sent}"
     );
     assert!(
         sent.get("think_mode").is_none(),
-        "Gemini 400s on unknown fields: {sent}"
+        "the API 400s on unknown fields: {sent}"
     );
     assert_eq!(
         sent["questions"].as_object().map(|q| q.len()),
@@ -186,7 +185,7 @@ async fn a_high_noul_tags_the_category() {
     assert_eq!(
         mock.authorization.lock().unwrap()[0],
         None,
-        "Gemini rejects a bearer token"
+        "the API keys on x-goog-api-key, not a bearer token"
     );
 
     // `/systemone/test` reports the effective model, not the empty field the operator left
@@ -281,4 +280,127 @@ async fn a_rejected_key_still_stores_the_memory_untagged() {
     let (_, counts) = call(&a.router, "GET", "/systemone/counts", None).await;
     let last_error = counts["last_error"].as_str().unwrap_or_default();
     assert!(last_error.contains("API key not valid"), "{counts}");
+}
+
+/// A config on disk that still names the removed vendor, saved again from the dashboard
+/// exactly as the form would send it (the pre-filled endpoint echoed back). The stored
+/// endpoint has to go with the vendor: keeping it would post memory text — and the stored
+/// key — to a service this build no longer calls.
+#[tokio::test]
+async fn a_stored_config_for_the_removed_vendor_is_migrated_on_save() {
+    let (mock, base) = start(json!({"food": {"type": "noul", "noul": 0.9}}), 200, None).await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let legacy = json!({
+        "version": "v1.1",
+        "llm": {"provider": "mock", "config": {}},
+        "embedder": {"provider": "mock", "config": {"embedding_dims": 10}},
+        "vector_store": {
+            "provider": "sqlite-vec",
+            "config": {"collection_name": "mem0", "embedding_model_dims": 10}
+        },
+        "systemone": {
+            "provider": "systemone",
+            "config": {
+                "vendor": "startlux",
+                "base_url": "https://api.someone-else.example/v1/systemone",
+                "model": "startlux-decision-27b-autothink",
+                "api_key": "legacy-key",
+                "think_mode": "auto",
+                "noul_threshold": 0.5
+            }
+        }
+    });
+    std::fs::write(
+        dir.path().join("config.json"),
+        serde_json::to_vec_pretty(&legacy).unwrap(),
+    )
+    .unwrap();
+    let router = mem0_desktop_rs::app_for_test(dir.path().to_path_buf());
+
+    // The form sends the pre-filled endpoint back, unchanged. That echo is not a decision.
+    let mut save = legacy.clone();
+    save["systemone"]["config"]["api_key"] = json!("AIza-new-key");
+    (save["systemone"]["config"]["base_url"], _) = (json!(base), ());
+    let (status, body) = call(&router, "POST", "/configure", Some(save)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let stored: Value =
+        serde_json::from_slice(&std::fs::read(dir.path().join("config.json")).unwrap()).unwrap();
+    let conf = &stored["systemone"]["config"];
+    assert!(conf.get("vendor").is_none(), "{conf}");
+    assert!(conf.get("think_mode").is_none(), "{conf}");
+    assert_eq!(
+        conf["base_url"],
+        json!(base),
+        "a new endpoint is kept: {conf}"
+    );
+
+    // And it works: the same provider, now pointed at the supported API, tags a memory.
+    let (status, added) = call(
+        &router,
+        "POST",
+        "/memories",
+        Some(json!({
+            "messages": [{"role": "user", "content": "I love ramen"}],
+            "user_id": "u", "infer": false
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{added}");
+    assert_eq!(
+        added["results"][0]["categories"],
+        json!(["food"]),
+        "{added}"
+    );
+    assert_eq!(mock.seen.lock().unwrap().len(), 1);
+}
+
+/// The stored endpoint echoed back with no replacement: the migration drops it and the
+/// client falls back to Google instead of posting to the removed service.
+#[tokio::test]
+async fn an_echoed_legacy_endpoint_is_dropped_rather_than_reused() {
+    let dir = tempfile::tempdir().unwrap();
+    let legacy = json!({
+        "version": "v1.1",
+        "llm": {"provider": "mock", "config": {}},
+        "embedder": {"provider": "mock", "config": {"embedding_dims": 10}},
+        "vector_store": {
+            "provider": "sqlite-vec",
+            "config": {"collection_name": "mem0", "embedding_model_dims": 10}
+        },
+        "systemone": {
+            "provider": "systemone",
+            "config": {
+                "base_url": "https://api.someone-else.example/v1/systemone",
+                "api_key": "legacy-key"
+            }
+        }
+    });
+    std::fs::write(
+        dir.path().join("config.json"),
+        serde_json::to_vec_pretty(&legacy).unwrap(),
+    )
+    .unwrap();
+    let router = mem0_desktop_rs::app_for_test(dir.path().to_path_buf());
+
+    let mut save = legacy.clone();
+    save["systemone"]["config"]["noul_threshold"] = json!(0.6);
+    let (status, body) = call(&router, "POST", "/configure", Some(save)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let stored: Value =
+        serde_json::from_slice(&std::fs::read(dir.path().join("config.json")).unwrap()).unwrap();
+    let conf = &stored["systemone"]["config"];
+    assert!(conf.get("base_url").is_none(), "{conf}");
+    assert_eq!(conf["noul_threshold"], json!(0.6));
+
+    // The Test button then reports Google's answer, with the default endpoint in the error.
+    let (_, tested) = call(&router, "POST", "/systemone/test", Some(json!({}))).await;
+    assert_eq!(tested["model"], json!("gemini-decision-1"), "{tested}");
+    let error = tested["error"].as_str().unwrap_or_default();
+    assert!(
+        error.contains("generativelanguage.googleapis.com"),
+        "the default endpoint must be visible: {tested}"
+    );
 }
