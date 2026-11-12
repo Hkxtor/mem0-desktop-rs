@@ -74,8 +74,11 @@ pub fn apply_autostart(exe: &Path, settings: &DesktopSettings) -> Result<(), Str
     use winreg::RegKey;
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let key = hkcu
-        .open_subkey_with_flags(AUTOSTART_KEY, KEY_SET_VALUE)
+    // Create rather than open: a fresh Windows profile has no `Run` key until something writes
+    // one, and opening a key that does not exist fails with "cannot find the file specified" —
+    // which is what a brand-new machine reports the first time the switch is turned on.
+    let (key, _) = hkcu
+        .create_subkey_with_flags(AUTOSTART_KEY, KEY_SET_VALUE)
         .map_err(|e| format!("cannot open HKCU\\{AUTOSTART_KEY}: {e}"))?;
     if settings.autostart {
         key.set_value(
