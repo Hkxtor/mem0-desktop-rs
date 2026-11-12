@@ -63,23 +63,18 @@ curl -X POST http://127.0.0.1:8888/search \
 
 分类是尽力而为的：模型调用失败时记忆照样存下（只是没有标签），失败原因出现在 `/systemone/counts` 的 `last_error`、配置页的「测试」按钮，以及应用日志里。
 
-### 两种决策 API
+### 决策 API
 
-provider 选 `systemone` 时，还可以选它底下具体用哪家的 **Decision API**：
+provider 选 `systemone` 表示用 Google 的 **decisions** 接口分类：一次请求、15 个问题、15 个概率，不写 prompt、不解析 JSON 数组。
 
-| | StartLux Decision | Gemini Decision |
-|---|---|---|
-| 请求地址 | 你填的 `base_url`（**必填**） | `https://generativelanguage.googleapis.com/v1beta/decisions` |
-| 鉴权 | `Authorization: Bearer <key>` | `x-goog-api-key: <key>` |
-| 默认模型 | `startlux-decision-27b-autothink` | `gemini-decision-1` |
-| `noul` 的含义 | 该分类**不**适用的概率 | 该条件**成立**的概率 |
-| 命中规则 | `noul < 阈值` | `noul ≥ 阈值` |
-
-两家的 `noul` 方向相反，所以阈值在界面上的说明会跟着切换。Gemini 侧与 Google 文档一致（`noul` 是「条件成立的概率」），实测：一条「杯子到货时是裂的」的消息在「是否到货即损坏？」上得 0.98，一条完好无损的在同一问题上得 0.022。
+- 请求地址默认 `https://generativelanguage.googleapis.com/v1beta/decisions`，模型默认 `gemini-decision-1`，都可以留空；填自己的代理地址也行（会自动补上 `/v1beta/decisions`，重复粘贴完整地址不会拼两次）
+- 鉴权用 `x-goog-api-key`
+- 每个分类问一个 `noul` 问题，返回的 `noul` 是**该条件成立的概率**，达到阈值（默认 0.5）就打上这个标签。与 Google 文档一致，实测：一条「杯子到货时是裂的」的消息在「是否到货即损坏？」上得 0.98，一条完好无损的在同一问题上得 0.022
+- 阈值调低打得更多、调高打得更少。实测「我在学 Rust，周末喜欢爬山和吃拉面」在 0.5 下会打 5 个标签，想收紧就调到 0.7 左右
 
 `misc` 是兜底分类（「其他分类都不适用」），因此只在它是唯一命中项时保留——否则每条记忆都会多出一个 `misc` 标签。
 
-用 Gemini 时只需要填 API 密钥，模型和地址留空即可；也可以填自己的代理地址（会自动补上 `/v1beta/decisions`，重复粘贴完整地址也不会拼两次）。
+> 历史上这里还支持过另一家决策 API。它已经移除：旧配置里的 `vendor` 键会在下一次保存配置时被清掉，连同属于那家服务的 `base_url`（否则记忆正文会被发往一个我们已不再支持的地址）。重新填一把 Google 的密钥即可恢复分类。
 
 ### 直接调 REST
 
