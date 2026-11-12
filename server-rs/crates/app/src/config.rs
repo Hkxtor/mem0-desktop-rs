@@ -52,8 +52,20 @@ pub fn drop_stale_base_urls(config: &mut Value) {
         // URL fall back to the decision endpoint (`.../v1/systemone`), which is precisely
         // the 404 this cleanup exists to prevent.
         if *section == "systemone" && provider != crate::categories::DECISION_PROVIDER {
-            for key in ["base_url", "think_mode", "noul_threshold"] {
+            for key in ["base_url", "think_mode", "noul_threshold", "vendor"] {
                 block_config.remove(key);
+            }
+        }
+        // Inside the decision backend, `think_mode` is a StartLux parameter. Gemini rejects
+        // unknown fields, so a leftover would turn every classification into a 400.
+        if *section == "systemone" && provider == crate::categories::DECISION_PROVIDER {
+            let vendor = block_config
+                .get("vendor")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|v| !v.is_empty());
+            if vendor == Some("gemini") {
+                block_config.remove("think_mode");
             }
         }
     }
@@ -148,12 +160,54 @@ pub fn merge_config(base: &Value, updates: &Value) -> Value {
     }
 }
 
+/// Drop the previous decision vendor's endpoint when the vendor changes.
+///
+/// A deep merge keeps keys the update did not mention, so switching `vendor` from StartLux
+/// to Gemini would carry `.../v1/systemone` across and post memory text to a service the
+/// operator just stopped using — with a Google API key attached. `drop_stale_base_urls`
+/// cannot catch this: it compares chat provider names, and both vendors share one provider.
+///
+/// An endpoint supplied *in* the update is the operator saying where to go, so it wins.
+fn drop_stale_vendor_endpoint(previous: &Value, updates: &Value, next: &mut Value) {
+    let vendor_of = |cfg: &Value| {
+        cfg.pointer("/systemone/config/vendor")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+    let before = vendor_of(previous);
+    let after = vendor_of(next);
+    if before == after {
+        return;
+    }
+    if next.pointer("/systemone/provider").and_then(|v| v.as_str())
+        != Some(crate::categories::DECISION_PROVIDER)
+    {
+        return;
+    }
+    let supplied = updates
+        .pointer("/systemone/config/base_url")
+        .or_else(|| updates.pointer("/systemone/config/systemone_base_url"))
+        .is_some();
+    if supplied {
+        return;
+    }
+    if let Some(cfg) = next
+        .pointer_mut("/systemone/config")
+        .and_then(|c| c.as_object_mut())
+    {
+        cfg.remove("base_url");
+        cfg.remove("systemone_base_url");
+    }
+}
+
 /// Convenience: apply the full update pipeline (merge → clean) the way
 /// `update_config` does, returning the cleaned merged config.
 pub fn apply_update(previous: &Value, updates: &mut Value) -> Value {
     sync_embedding_dims(updates);
     let mut next = merge_config(previous, updates);
     drop_stale_base_urls(&mut next);
+    drop_stale_vendor_endpoint(previous, updates, &mut next);
     drop_replaced_credentials(previous, &mut next, updates);
     next
 }
@@ -304,5 +358,96 @@ mod decision_key_tests {
         );
         assert_eq!(conf["think_mode"], json!("auto"));
         assert_eq!(conf["noul_threshold"], json!(0.4));
+    }
+
+    #[test]
+    fn choosing_the_gemini_vendor_drops_the_startlux_think_mode() {
+        // `think_mode` is a StartLux parameter; Gemini answers 400 for unknown fields.
+        let mut c = json!({
+            "systemone": {
+                "provider": "systemone",
+                "config": {
+                    "vendor": "gemini",
+                    "base_url": "https://generativelanguage.googleapis.com",
+                    "think_mode": "auto",
+                    "noul_threshold": 0.5
+                }
+            }
+        });
+        drop_stale_base_urls(&mut c);
+        let conf = &c["systemone"]["config"];
+        assert!(conf.get("think_mode").is_none(), "{conf}");
+        assert_eq!(conf["noul_threshold"], json!(0.5));
+        assert_eq!(
+            conf["base_url"],
+            json!("https://generativelanguage.googleapis.com")
+        );
+    }
+}
+
+#[cfg(test)]
+mod vendor_switch_tests {
+    use super::apply_update;
+    use serde_json::json;
+
+    fn startlux() -> serde_json::Value {
+        json!({
+            "systemone": {
+                "provider": "systemone",
+                "config": {
+                    "base_url": "https://api.someone-else.example/v1/systemone",
+                    "model": "startlux-decision-27b-autothink",
+                    "api_key": "k",
+                    "think_mode": "auto",
+                    "noul_threshold": 0.5
+                }
+            }
+        })
+    }
+
+    /// The endpoint belongs to the vendor. Carrying `.../v1/systemone` into a switch to
+    /// Gemini would post memory text to a service the operator just stopped using, with a
+    /// Google API key attached. A deep merge would otherwise keep it.
+    #[test]
+    fn switching_to_gemini_without_an_endpoint_drops_the_previous_one() {
+        let previous = startlux();
+        let mut updates = json!({
+            "systemone": {"provider": "systemone", "config": {"vendor": "gemini"}}
+        });
+        let next = apply_update(&previous, &mut updates);
+        let conf = &next["systemone"]["config"];
+        assert!(conf.get("base_url").is_none(), "{conf}");
+        assert_eq!(conf["vendor"], json!("gemini"));
+    }
+
+    /// Supplying an endpoint in the update is the operator saying where to go.
+    #[test]
+    fn an_endpoint_in_the_update_survives_the_switch() {
+        let previous = startlux();
+        let mut updates = json!({
+            "systemone": {"provider": "systemone", "config": {
+                "vendor": "gemini",
+                "base_url": "https://proxy.example/v1beta",
+            }}
+        });
+        let next = apply_update(&previous, &mut updates);
+        assert_eq!(
+            next["systemone"]["config"]["base_url"],
+            json!("https://proxy.example/v1beta")
+        );
+    }
+
+    /// Staying on one vendor keeps its endpoint — the cleanup must not be a blunt delete.
+    #[test]
+    fn keeping_the_same_vendor_keeps_the_endpoint() {
+        let previous = startlux();
+        let mut updates = json!({
+            "systemone": {"provider": "systemone", "config": {"noul_threshold": 0.7}}
+        });
+        let next = apply_update(&previous, &mut updates);
+        assert_eq!(
+            next["systemone"]["config"]["base_url"],
+            json!("https://api.someone-else.example/v1/systemone")
+        );
     }
 }

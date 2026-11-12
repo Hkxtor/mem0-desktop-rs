@@ -136,6 +136,29 @@ pub async fn classify(
 /// Uses a fixed probe sentence (no user data leaves the machine for this call) and
 /// always answers 200, so the page can render the provider's own error text instead
 /// of a generic failure.
+/// The model actually in effect for the `systemone` section.
+///
+/// The config records what the operator typed, which is often nothing: a decision vendor
+/// fills in its own default (`gemini-decision-1`), and a blank field is not a broken one.
+/// Reporting the raw value as `null` made a working configuration look misconfigured in the
+/// UI, which is exactly where someone goes to diagnose it.
+fn effective_model(section: &Value) -> Value {
+    if let Some(model) = section
+        .get("config")
+        .and_then(|c| c.get("model"))
+        .and_then(|v| v.as_str())
+        .filter(|m| !m.trim().is_empty())
+    {
+        return Value::String(model.to_string());
+    }
+    if let Some(cfg) = section.get("config") {
+        if let Ok(client) = crate::decision::DecisionClient::from_config(cfg) {
+            return Value::String(client.model().to_string());
+        }
+    }
+    Value::Null
+}
+
 pub async fn test_classifier(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
@@ -146,11 +169,7 @@ pub async fn test_classifier(
         .get("provider")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    let model = section
-        .get("config")
-        .and_then(|c| c.get("model"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let model = effective_model(&section);
     if provider.is_empty() {
         return Json(json!({
             "ok": false,
@@ -435,11 +454,7 @@ pub async fn category_counts(
         "configured": configured,
         "counts": counts,
         "provider": section.get("provider").cloned().unwrap_or(Value::Null),
-        "model": section
-            .get("config")
-            .and_then(|c| c.get("model"))
-            .cloned()
-            .unwrap_or(Value::Null),
+        "model": effective_model(&section),
         "last_error": last_error,
         "unclassified": unclassified,
     })))
