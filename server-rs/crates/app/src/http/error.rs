@@ -67,6 +67,10 @@ impl From<mem0::Mem0Error> for ApiError {
                 ApiError::unavailable(format!("runtime_not_configured: {e}"))
             }
             mem0::Mem0Error::Validation { .. } => ApiError::bad_request(e.to_string()),
+            // The key pool's verdict: every key is rate limited or rejected up front, so the
+            // request could not be attempted at all. 503 says "not your input, not now" — and
+            // the message carries the provider-free reason (`RATE_001` / `KEYS_001`).
+            mem0::Mem0Error::RateLimit { .. } => ApiError::unavailable(e.to_string()),
             other => ApiError::internal(other.to_string()),
         }
     }

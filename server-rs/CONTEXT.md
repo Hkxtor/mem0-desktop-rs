@@ -14,6 +14,10 @@ Glossary only. No implementation details, no decisions (those go to ADRs if they
 
 ## Access
 
+- **Key Pool（密钥池）** — the set of API keys a single model section (`llm`, `embedder`, `systemone`) may spend. One pool per section, all keys interchangeable: same provider, same model, so a request's outcome does not depend on which key served it. A single-key configuration is a pool of one and behaves exactly as it did before pools existed.
+- **Cooldown（冷却）** — the state of a pooled key that has just answered `429`. A cooling key is skipped rather than retried, and returns to the pool on its own when the period ends; nothing about the pool is permanent, so a restart forgets every cooldown. Distinct from a *revoked* key, which no amount of waiting fixes.
+- **Revoked key（作废密钥）** — a pooled key whose credential the upstream rejected (`401`/`403`). It is not cooling: waiting will not help, so it stays out of the pool until the process restarts or the keys are edited. Distinct from a *rate-limited* key, which is only temporarily out. The pool is not broken while one key is revoked, so a request served by another key succeeds — but the revocation must be visible, since it means that key is wrong, cancelled, or unpaid.
+
 - **Access token（访问令牌）** — short-lived bearer token (1 h) minted by `/auth/login`. The dashboard keeps it in memory only, so it disappears on reload by design and is replaced from the refresh cookie.
 - **Refresh token（刷新令牌）** — 30-day credential exchanged for a new access token. Lives in an `HttpOnly` cookie the page cannot read, so a script injected into the dashboard cannot exfiltrate a month of access. Single use: each exchange revokes the token it consumed and returns a replacement, which the cookie must be updated to or the *next* refresh fails.
 - **Session（会话）** — the browser's ability to obtain an access token without a password. Held entirely by the refresh cookie; the server stores no session object. Ends when the cookie is cleared (`DELETE /auth/session`) or its token is exchanged and the replacement is lost.

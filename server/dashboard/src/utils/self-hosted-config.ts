@@ -1,3 +1,5 @@
+import type { KeyPoolStatus } from "@/utils/api-endpoints";
+
 type ProviderConfig = {
   provider?: string;
   config?: {
@@ -7,7 +9,6 @@ type ProviderConfig = {
     [key: string]: unknown;
   };
 };
-
 export type EffectiveConfig = {
   llm?: ProviderConfig;
   embedder?: ProviderConfig;
@@ -90,21 +91,6 @@ export const readBaseUrl = (section: ProviderConfig | undefined): string => {
  * wins. When the two share a provider the LLM's key is a reasonable fallback — one OpenAI key serves
  * both — but only then: handing an Anthropic key to Gemini is a 401, not a convenience.
  */
-export const resolveEmbedderApiKey = ({
-  embedderApiKey,
-  llmApiKey,
-  embedderProvider,
-  llmProvider,
-}: {
-  embedderApiKey?: string;
-  llmApiKey?: string;
-  embedderProvider?: string;
-  llmProvider?: string;
-}) =>
-  embedderApiKey?.trim() ||
-  (embedderProvider && embedderProvider === llmProvider ? llmApiKey : "") ||
-  "";
-
 /** What the embedder's key field says it will do, given the two providers. */
 export const embedderKeyHint = ({
   serverHasKey,
@@ -122,16 +108,57 @@ export const embedderKeyHint = ({
   return "必填：这个 provider 不复用 LLM 的密钥。";
 };
 
+/**
+ * Read a multi-line key field into the list the server stores.
+ *
+ * One key per line, blanks dropped, and a repeat removed: the same key twice is the same quota
+ * twice, which only makes the rotation spend it twice as often. The values are trimmed because a
+ * pasted list arrives with indentation.
+ */
+export const parseApiKeys = (raw: string): string[] => {
+  const seen: string[] = [];
+  for (const line of raw.split("\n")) {
+    const key = line.trim();
+    if (key && !seen.includes(key)) {
+      seen.push(key);
+    }
+  }
+  return seen;
+};
+
+/**
+ * The one line under a key field: how many keys this section can spend, whether one is parked,
+ * whether one was rejected. Renders nothing when the section has no pool of its own to report.
+ */
+export const keyPoolSummary = (status?: KeyPoolStatus): string | null => {
+  if (!status) return null;
+  if (status.inherited) {
+    return status.keys > 0 ? `沿用 LLM 的 ${status.keys} 把密钥` : null;
+  }
+  if (status.keys === 0) return null;
+  const parts = [`${status.keys} 把`];
+  if (status.cooling > 0) {
+    parts.push(
+      status.next_available_in > 0
+        ? `${status.cooling} 把冷却中（${status.next_available_in}s）`
+        : `${status.cooling} 把冷却中`,
+    );
+  }
+  if (status.revoked > 0) parts.push(`${status.revoked} 把已作废`);
+  return parts.join(" · ");
+};
+
 export const buildProviderConfig = ({
   provider,
   model,
-  apiKey,
+  apiKeys,
   baseUrl,
   embeddingDims,
 }: {
   provider: string;
   model: string;
-  apiKey?: string;
+  /** The typed keys. Empty means "change nothing", so the stored pool survives a save. */
+  apiKeys?: string[];
   baseUrl?: string;
   embeddingDims?: number;
 }) => {
@@ -141,7 +168,7 @@ export const buildProviderConfig = ({
 
   const config: Record<string, unknown> = {
     model: model || undefined,
-    api_key: apiKey || undefined,
+    api_keys: apiKeys && apiKeys.length > 0 ? apiKeys : undefined,
   };
 
   // Only sent when the operator filled it in: an empty string would otherwise overwrite a value

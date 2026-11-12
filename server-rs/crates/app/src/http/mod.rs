@@ -9,6 +9,7 @@ pub mod routes_auth;
 pub mod routes_config;
 pub mod routes_diagnostics;
 pub mod routes_health;
+pub mod routes_keys;
 pub mod routes_logs;
 pub mod routes_memories;
 pub mod routes_misc;
@@ -179,6 +180,7 @@ pub fn build_router_arc(state: Arc<AppState>) -> Router {
             "/diagnostics/storage",
             axum::routing::get(routes_diagnostics::storage_diagnostics),
         )
+        .route("/keys/status", axum::routing::get(routes_keys::key_status))
         .route("/logs/app", axum::routing::get(routes_logs::app_log))
         .route(
             "/logs/requests",

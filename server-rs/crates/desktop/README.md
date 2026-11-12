@@ -55,6 +55,27 @@ curl -X POST http://127.0.0.1:8888/search \
   -d '{"query":"爱好","filters":{"user_id":"alice"}}'
 ```
 
+## 多 API 密钥（Key Pool）
+
+每个模型段（`llm` / `embedder` / `systemone`）都可以填**多把同 provider 的密钥**：配置页的密钥框一行一把，最多 20 把。请求在它们之间轮换，而不是只用第一把直到它挂掉。
+
+- **429（限流）**：这把密钥进入冷却，冷却时长取上游的 `Retry-After`，没有就 60 秒；当前这次请求立刻换下一把重试，所以一次限流不会变成一次失败。
+- **401 / 403（凭据被拒）**：这把密钥在本进程内作废，不再使用。等待修不好一个错 key。
+- **5xx / 网络错误**：不换 key，直接失败。同一个上游对每把 key 都一样坏，轮换只会把一次失败变成三次慢的。
+- 全部密钥都不可用时立刻失败，报告里写明最早多久恢复；只有恢复时间 ≤3 秒才会等一下再试。
+- `embedder` 和 `systemone` **留空密钥**且 provider 与 `llm` 相同时，自动沿用 LLM 的密钥集合（冷却状态各自独立，因为配额是按模型算的）。
+
+状态是**进程内**的，重启即忘：key 被标作废通常是因为填错或欠费，这两件事都在进程外修好，把它写进磁盘只会让修好的 key 再也回不来。配置页密钥框下面会显示当前状态（`3 把 · 1 把冷却中（47s）· 1 把已作废`），也可以直接问 `GET /keys/status`：
+
+```bash
+curl http://127.0.0.1:8888/keys/status
+# {"llm":{"keys":3,"cooling":1,"revoked":0,"next_available_in":47,"inherited":false,"last_error":"429 rate limited"},...}
+```
+
+接口只报数量与状态，永远不回显密钥本身；`/configure` 里每一把都会被打码成 `[redacted]`（长度保留，所以界面上还知道有几把）。
+
+为什么这样设计、否决了哪些替代方案，见 [`server-rs/docs/adr/0001-api-key-pools.md`](../../docs/adr/0001-api-key-pools.md)。
+
 ## 记忆分类（Categories）
 
 可选。配置之后，每条新记忆都会被分类模型打上 0..n 个标签，取值来自固定的 15 个预设：`personal_details`、`family`、`professional_details`、`sports`、`travel`、`food`、`music`、`health`、`technology`、`hobbies`、`fashion`、`entertainment`、`milestones`、`user_preferences`、`misc`。标签存在记忆的 payload 里，导出时原样带出，导入时原样保留。

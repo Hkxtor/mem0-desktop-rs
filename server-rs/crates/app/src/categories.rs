@@ -53,15 +53,19 @@ pub fn is_configured(config: &Value) -> bool {
 /// Build the classifier from the server config. `Ok(None)` means classification is off.
 pub fn build_classifier(config: &Value) -> Result<Option<Classifier>> {
     if !is_configured(config) {
+        crate::pooled::clear(crate::pooled::SYSTEMONE);
         return Ok(None);
     }
     let section = &config["systemone"];
     let provider = section["provider"].as_str().unwrap_or_default();
     let cfg = section.get("config").cloned().unwrap_or(json!({}));
+    // Classification may spend several keys of the same provider, and may spend the LLM's
+    // keys when it names none — a batch run is the heaviest caller in the app.
+    let (keys, inherited) = crate::pooled::resolve_keys(config, crate::pooled::SYSTEMONE, provider);
     // The SystemOne decision API is not chat-completions: it takes a state plus typed
     // questions. Everything else (openai/anthropic/gemini/mock) is a chat model.
     if provider == DECISION_PROVIDER {
-        let client = crate::decision::DecisionClient::from_config(&cfg)?;
+        let client = crate::decision::DecisionClient::from_config(&cfg, keys, inherited)?;
         return Ok(Some(Classifier {
             backend: Backend::Decision(client),
             max_tokens: 0,
@@ -78,7 +82,7 @@ pub fn build_classifier(config: &Value) -> Result<Option<Classifier>> {
             .to_string();
         Box::new(CannedLlm(response))
     } else {
-        mem0::build_llm(provider, &cfg)
+        crate::pooled::build_llm(provider, &cfg, crate::pooled::SYSTEMONE, keys, inherited)
             .map_err(|e| Mem0Error::configuration(format!("systemone ({provider}): {e}")))?
     };
     // Reasoning models (a `reasoning` field instead of `content`) spend the whole budget
