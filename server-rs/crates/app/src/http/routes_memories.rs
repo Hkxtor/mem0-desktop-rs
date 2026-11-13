@@ -287,17 +287,23 @@ fn record_extraction_outcome(
     // One add produces at most one diagnostic. Anything else means a concurrent add was
     // recorded in the same window: log them all, but let the first name this reason.
     for d in &diagnostics {
-        crate::logging::warn(
-            "llm",
-            "extraction produced no memories",
-            serde_json::json!({
-                "stage": d.stage.as_str(),
-                "parsed": d.parsed_count,
-                "error": d.error,
-                "answer": d.answer,
-                "truncated": d.answer.chars().count() > crate::logging::MAX_FIELD_CHARS,
-            }),
-        );
+        let mut fields = serde_json::json!({
+            "stage": d.stage.as_str(),
+            "parsed": d.parsed_count,
+            "error": d.error,
+            "answer": d.answer,
+            "truncated": d.answer.chars().count() > crate::logging::MAX_FIELD_CHARS,
+        });
+        // "unparsed" on its own is a dead end: the answer is cut at 2000 chars in the log,
+        // so the part that failed to parse is exactly the part that never gets written down.
+        // `json_error` names the failure ("EOF while parsing a string" is a truncated
+        // answer, "expected `,`" is a malformed one) and the tail shows where it stopped.
+        if d.stage == mem0_core::diagnostics::Stage::Unparsed {
+            fields["answer_chars"] = serde_json::json!(d.answer.chars().count());
+            fields["answer_tail"] = serde_json::json!(tail_chars(&d.answer, 300));
+            fields["json_error"] = serde_json::json!(json_error(&d.answer));
+        }
+        crate::logging::warn("llm", "extraction produced no memories", fields);
     }
     if !results.is_empty() {
         return;
@@ -314,6 +320,23 @@ fn record_extraction_outcome(
     if let Ok(mut slot) = reason.lock() {
         *slot = Some(code.to_string());
     }
+}
+
+/// Why an answer that looks like JSON did not parse. Cheap to compute and the only
+/// information that distinguishes a truncated answer from a malformed one.
+fn json_error(answer: &str) -> String {
+    match serde_json::from_str::<Value>(answer) {
+        Ok(_) => "parsed as JSON but carried no \"memory\" array".to_string(),
+        Err(e) => e.to_string(),
+    }
+}
+
+fn tail_chars(s: &str, n: usize) -> String {
+    let count = s.chars().count();
+    if count <= n {
+        return s.to_string();
+    }
+    s.chars().skip(count - n).collect()
 }
 
 pub async fn search_memories(
@@ -719,5 +742,33 @@ mod tests {
         let body: MemoryCreate =
             serde_json::from_str(r#"{"messages":[{"role":"user","content":"hi"}]}"#).unwrap();
         assert!(body.user_id.is_none() && body.agent_id.is_none() && body.run_id.is_none());
+    }
+
+    /// A truncated answer and a malformed one both reach the Requests page as
+    /// "回答无法解析", but they need different fixes. The log has to say which.
+    #[test]
+    fn a_truncated_answer_names_truncation() {
+        let cut = r#"{"memory": [{"id": "0", "text": "User moved to Hangzhou"#;
+        let err = json_error(cut);
+        assert!(err.contains("EOF while parsing"), "{err}");
+        assert_eq!(
+            tail_chars(cut, 300),
+            cut,
+            "a short answer keeps its whole tail"
+        );
+        assert_eq!(tail_chars("abcdef", 3), "def");
+    }
+
+    #[test]
+    fn a_malformed_answer_names_its_own_failure() {
+        let err = json_error(r#"{"memory": [{"id": "0" "text": "x"}]}"#);
+        assert!(err.contains("expected"), "{err}");
+        assert!(!err.contains("EOF"), "not a truncation: {err}");
+    }
+
+    #[test]
+    fn valid_json_without_a_memory_array_is_not_reported_as_a_parse_error() {
+        let err = json_error(r#"{"memories": []}"#);
+        assert!(err.contains("no \"memory\" array"), "{err}");
     }
 }

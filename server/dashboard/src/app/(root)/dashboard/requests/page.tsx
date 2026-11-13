@@ -39,7 +39,7 @@ const REASON_HINTS: Record<string, string> = {
   no_memories: "模型看过这条消息，但没有发现值得记住的内容。",
   provider_error: "模型调用失败，抽取被跳过。详情见「日志」页的应用日志。",
   unparsed_answer:
-    "模型的回答不是可解析的记忆列表。详情见「日志」页的应用日志。",
+    "模型的回答不是完整的 JSON——常见原因是回答在输出长度上限处被截断。日志页会写明是截断还是格式错误，以及回答的结尾。",
 };
 
 const REQUEST_LOG_LIMIT = 200;
