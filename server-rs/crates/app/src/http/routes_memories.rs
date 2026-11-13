@@ -287,6 +287,14 @@ fn record_extraction_outcome(
     // One add produces at most one diagnostic. Anything else means a concurrent add was
     // recorded in the same window: log them all, but let the first name this reason.
     for d in &diagnostics {
+        // A salvaged answer is the "cut off mid-array" case with the complete entries kept:
+        // worth a warning, but it did store memories, so it is not the same line as a total
+        // loss. The reader of this log is deciding whether to raise the output budget.
+        let message = if d.stage == mem0_core::diagnostics::Stage::Salvaged {
+            "extraction answer was incomplete; kept the complete entries"
+        } else {
+            "extraction produced no memories"
+        };
         let mut fields = serde_json::json!({
             "stage": d.stage.as_str(),
             "parsed": d.parsed_count,
@@ -298,12 +306,15 @@ fn record_extraction_outcome(
         // so the part that failed to parse is exactly the part that never gets written down.
         // `json_error` names the failure ("EOF while parsing a string" is a truncated
         // answer, "expected `,`" is a malformed one) and the tail shows where it stopped.
-        if d.stage == mem0_core::diagnostics::Stage::Unparsed {
+        if matches!(
+            d.stage,
+            mem0_core::diagnostics::Stage::Unparsed | mem0_core::diagnostics::Stage::Salvaged
+        ) {
             fields["answer_chars"] = serde_json::json!(d.answer.chars().count());
             fields["answer_tail"] = serde_json::json!(tail_chars(&d.answer, 300));
             fields["json_error"] = serde_json::json!(json_error(&d.answer));
         }
-        crate::logging::warn("llm", "extraction produced no memories", fields);
+        crate::logging::warn("llm", message, fields);
     }
     if !results.is_empty() {
         return;
@@ -316,6 +327,8 @@ fn record_extraction_outcome(
         mem0_core::diagnostics::Stage::EmptyAnswer => REASON_NO_MEMORIES,
         mem0_core::diagnostics::Stage::Unparsed => REASON_UNPARSED,
         mem0_core::diagnostics::Stage::NoUsableEntries => REASON_UNPARSED,
+        // Salvaged answers store what they could, so they never reach here with results.
+        mem0_core::diagnostics::Stage::Salvaged => REASON_UNPARSED,
     };
     if let Ok(mut slot) = reason.lock() {
         *slot = Some(code.to_string());

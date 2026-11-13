@@ -133,6 +133,7 @@ mod tests {
 
     #[test]
     fn build_memory_with_mock_providers() {
+        let _gate = crate::pooled::test_gate();
         let dir = tempfile::tempdir().unwrap();
         let cfg = json!({
             "vector_store": {"provider": "sqlite-vec", "config": {"collection_name": "mem0", "embedding_model_dims": 10}},
@@ -148,6 +149,7 @@ mod tests {
 
     #[test]
     fn bad_provider_surfaces_component_and_provider_name() {
+        let _gate = crate::pooled::test_gate();
         let dir = tempfile::tempdir().unwrap();
         let cfg = json!({
             "vector_store": {"provider": "sqlite-vec", "config": {"embedding_model_dims": 10}},
