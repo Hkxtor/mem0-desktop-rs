@@ -70,6 +70,17 @@ pub fn clear(section: &'static str) {
     registry_lock().remove(section);
 }
 
+/// Serialise the unit tests that touch the registry.
+///
+/// It is process-wide state, so two tests building a memory at the same time see each other's
+/// sections — `a_pool_of_one_still_reports_state` would read the pool another test just
+/// replaced. The integration tests take the same precaution per file.
+#[cfg(test)]
+pub(crate) fn test_gate() -> std::sync::MutexGuard<'static, ()> {
+    static GATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    GATE.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// Forget every ring. The runtime is being torn down, so no cooldown outlives it — and a test
 /// that configures the app must not inherit the previous test's pool.
 pub fn reset() {
@@ -546,6 +557,7 @@ mod tests {
 
     #[test]
     fn a_pool_of_one_still_reports_state() {
+        let _gate = test_gate();
         let dir = tempfile::tempdir().unwrap();
         let cfg = json!({
             "vector_store": {"provider": "sqlite-vec", "config": {"collection_name": "mem0", "embedding_model_dims": 10}},

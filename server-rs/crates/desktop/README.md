@@ -122,9 +122,11 @@ curl "http://127.0.0.1:8888/memories?categories=food,technology"
 
 鼠标悬停在灰标上会说明具体原因，模型的原始回答和 provider 的报错在 **dashboard → 日志 → 应用日志**（也可直接看 `data/logs/app.log`）。
 
-「回答无法解析」最常见的原因是**回答被输出长度上限截断**：模型正在写那段 JSON 的时候预算用完了，数组没有闭合，于是整段作废、一条记忆都没存下。这种情况在日志里会写明 `json_error`（`EOF while parsing a string` 就是截断，`expected ',' or '}'` 才是真的格式错）、`answer_chars` 和 `answer_tail`（回答的结尾，能直接看到断在哪里）。
+「回答无法解析」最常见的原因是**回答被输出长度上限截断**：模型正在写那段 JSON 的时候预算用完了，数组没有闭合。日志里会写明 `json_error`（`EOF while parsing a string` 就是截断，`expected ',' or '}'` 才是真的格式错）、`answer_chars` 和 `answer_tail`（回答的结尾，能直接看到断在哪里）。
 
-如果确实是截断，把预算调大：`llm.config.max_tokens`（默认 2000）改成 `8192`。思考型模型（Gemini 3.x 这类）的思考 token 也算在这个预算里，所以答案看起来不长也可能被截断。日志页支持按级别过滤、关键字搜索、可选自动刷新（默认关闭）和下载。
+这种情况下**已经写完的条目会被保留**：解析失败后会逐个扫描 `"memory"` 数组里的对象，把完整的存下来，只丢掉被切断的最后一条，日志里记成 `stage: salvaged`（"extraction answer was incomplete; kept the complete entries"），Requests 页那行显示实际存下的条数。只有一条都没写完时才会出现「回答无法解析」灰标。
+
+输出预算是 `llm.config.max_tokens`，默认 8192。思考型模型（Gemini 3.x 这类）的思考 token 也算在这个预算里，所以答案看起来不长也可能被截断；库很大、一次要抽几十条记忆时可以再调高。日志页支持按级别过滤、关键字搜索、可选自动刷新（默认关闭）和下载。
 
 日志里的 API key、`Authorization`、`X-API-Key` 等凭证在写入前一律打码；模型回答超过 2000 字符会被截断并标记 `truncated`。
 

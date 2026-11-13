@@ -2307,7 +2307,7 @@ dependencies = [
 [[package]]
 name = "mem0"
 version = "0.1.0"
-source = "git+https://github.com/Hkxtor/mem0-rs.git?rev=ad4bb52#ad4bb52fbc62430ed89c4b2e0ff716cc870eb85e"
+source = "git+https://github.com/Hkxtor/mem0-rs.git?rev=86ecf12#86ecf129264838fc4a3b1947071849fabaf1fb30"
 dependencies = [
  "mem0-core",
  "mem0-embed",
@@ -2321,7 +2321,7 @@ dependencies = [
 [[package]]
 name = "mem0-core"
 version = "0.1.0"
-source = "git+https://github.com/Hkxtor/mem0-rs.git?rev=ad4bb52#ad4bb52fbc62430ed89c4b2e0ff716cc870eb85e"
+source = "git+https://github.com/Hkxtor/mem0-rs.git?rev=86ecf12#86ecf129264838fc4a3b1947071849fabaf1fb30"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2386,7 +2386,7 @@ dependencies = [
 [[package]]
 name = "mem0-embed"
 version = "0.1.0"
-source = "git+https://github.com/Hkxtor/mem0-rs.git?rev=ad4bb52#ad4bb52fbc62430ed89c4b2e0ff716cc870eb85e"
+source = "git+https://github.com/Hkxtor/mem0-rs.git?rev=86ecf12#86ecf129264838fc4a3b1947071849fabaf1fb30"
 dependencies = [
  "async-trait",
  "mem0-core",
@@ -2399,7 +2399,7 @@ dependencies = [
 [[package]]
 name = "mem0-llm"
 version = "0.1.0"
-source = "git+https://github.com/Hkxtor/mem0-rs.git?rev=ad4bb52#ad4bb52fbc62430ed89c4b2e0ff716cc870eb85e"
+source = "git+https://github.com/Hkxtor/mem0-rs.git?rev=86ecf12#86ecf129264838fc4a3b1947071849fabaf1fb30"
 dependencies = [
  "async-trait",
  "mem0-core",
@@ -2412,7 +2412,7 @@ dependencies = [
 [[package]]
 name = "mem0-rerank"
 version = "0.1.0"
-source = "git+https://github.com/Hkxtor/mem0-rs.git?rev=ad4bb52#ad4bb52fbc62430ed89c4b2e0ff716cc870eb85e"
+source = "git+https://github.com/Hkxtor/mem0-rs.git?rev=86ecf12#86ecf129264838fc4a3b1947071849fabaf1fb30"
 dependencies = [
  "async-trait",
  "mem0-core",
@@ -2427,7 +2427,7 @@ dependencies = [
 [[package]]
 name = "mem0-vector"
 version = "0.1.0"
-source = "git+https://github.com/Hkxtor/mem0-rs.git?rev=ad4bb52#ad4bb52fbc62430ed89c4b2e0ff716cc870eb85e"
+source = "git+https://github.com/Hkxtor/mem0-rs.git?rev=86ecf12#86ecf129264838fc4a3b1947071849fabaf1fb30"
 dependencies = [
  "async-trait",
  "mem0-core",
