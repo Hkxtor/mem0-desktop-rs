@@ -151,6 +151,40 @@ curl "http://127.0.0.1:8888/memories?categories=food,technology"
 
 为什么这样设计（尤其"失败反而把用户原文存下来、成功后立刻删掉"这两条看着反直觉的决定），见 `server-rs/docs/adr/0002-failed-add-retry.md`。
 
+## 图标
+
+`icons/` 里的图标是 mem0 的品牌标记（取自 dashboard 的 wordmark），放在应用的深色底上：
+
+| 文件 | 用途 |
+|---|---|
+| `icon.ico` | Windows 可执行文件资源、任务栏、标题栏（16/24/32/48/64/128/256 七个尺寸） |
+| `icon-256.png` / `icon-128.png` | Tauri 打包与窗口/托盘默认图标 |
+| `icon.png` | 32×32 兜底 |
+| `icon.svg` / `icon-small.svg` | 源文件：完整标记 / 16–24px 用的简化标记 |
+
+16 和 24 像素用的是**简化版**（中心圆 + 一圈 8 个点）：完整标记有二十多个小点，缩到 16px 只剩一团噪点。两者共用同一底色与轮廓，所以看起来是同一个图标。
+
+重新生成（需要 google-chrome 与 ImageMagick）：
+
+```bash
+cd server-rs/crates/desktop/icons
+for s in 32 48 64 128 256; do
+  google-chrome --headless --disable-gpu --no-sandbox \
+    --default-background-color=00000000 --window-size=$s,$s --hide-scrollbars \
+    --screenshot=f$s.png file://$PWD/icon.svg
+done
+for s in 16 24; do
+  google-chrome --headless --disable-gpu --no-sandbox \
+    --default-background-color=00000000 --window-size=$s,$s --hide-scrollbars \
+    --screenshot=f$s.png file://$PWD/icon-small.svg
+done
+convert f256.png f128.png f64.png f48.png f32.png f24.png f16.png icon.ico
+cp f256.png icon-256.png; cp f128.png icon-128.png; cp f32.png icon.png
+rm -f f16.png f24.png f32.png f48.png f64.png f128.png f256.png
+```
+
+`--default-background-color=00000000` 是必须的：少了它圆角外会填成白色。
+
 ## 已知限制
 
 - 未签名：Windows SmartScreen / macOS Gatekeeper 首次运行会弹警告，选择"仍要运行"即可（自用 tar.gz 交付不受影响）。

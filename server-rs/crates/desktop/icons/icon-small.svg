@@ -1,0 +1,4 @@
+<!-- mem0 mark, simplified for 16/24px: the full cluster turns to mush there. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%"><defs><linearGradient id="bg" x1="0" y1="0" x2="0.35" y2="1">
+<stop offset="0" stop-color="#23232E"/><stop offset="1" stop-color="#0A0A0F"/></linearGradient></defs>
+<rect width="512" height="512" rx="112" ry="112" fill="url(#bg)"/><g transform="translate(76.8 76.8) scale(3.3185)"><circle cx="54" cy="54" r="15" fill="#fff"/><circle cx="84.49" cy="66.63" r="8.4" fill="#fff"/><circle cx="66.63" cy="84.49" r="8.4" fill="#fff"/><circle cx="41.37" cy="84.49" r="8.4" fill="#fff"/><circle cx="23.51" cy="66.63" r="8.4" fill="#fff"/><circle cx="23.51" cy="41.37" r="8.4" fill="#fff"/><circle cx="41.37" cy="23.51" r="8.4" fill="#fff"/><circle cx="66.63" cy="23.51" r="8.4" fill="#fff"/><circle cx="84.49" cy="41.37" r="8.4" fill="#fff"/></g></svg>
