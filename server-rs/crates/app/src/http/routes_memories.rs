@@ -23,7 +23,7 @@ use super::AppState;
 
 // ---------- request shapes (mirror server/memory_api.py pydantic models) ----------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct MessageIn {
     pub role: String,
     pub content: String,
@@ -104,7 +104,7 @@ pub struct DeleteAllQuery {
 
 // ---------- helpers ----------
 
-async fn memory(state: &AppState) -> ApiResult<Arc<Memory>> {
+pub(super) async fn memory(state: &AppState) -> ApiResult<Arc<Memory>> {
     crate::http::routes_config::memory_or_restore(state)
         .await
         .ok_or_else(|| {
@@ -154,20 +154,29 @@ pub async fn add_memory(
     // The count depends on how many memories the extraction produced, so it comes from
     // the payload rather than from the request.
     let results_of = |v: &Json<Value>| ops::count_results(&v.0);
-    // `add` swallows two failures by design (a provider error and an unparseable answer
-    // both become `results: []`). The body writes the reason here so the Requests page can
-    // explain a zero instead of leaving the operator to guess.
-    let reason: Arc<std::sync::Mutex<Option<String>>> = Arc::new(std::sync::Mutex::new(None));
-    let reason_for_body = reason.clone();
-    let reason_of = move |_: &Json<Value>| reason.lock().ok().and_then(|r| r.clone());
+    // `add` swallows three failures by design (a provider error, an unparseable answer and
+    // entries that could not be embedded all become a shorter or empty result list). The body
+    // writes the explanation here so the Requests page can say why, and point at the stash
+    // holding the input.
+    let outcome: Arc<std::sync::Mutex<ops::Outcome>> =
+        Arc::new(std::sync::Mutex::new(ops::Outcome::default()));
+    let outcome_for_body = outcome.clone();
+    let outcome_of = move |_: &Result<Json<Value>, ApiError>| {
+        let o = outcome.lock().ok().map(|o| o.clone()).unwrap_or_default();
+        if o.reason.is_none() && o.failed_add_id.is_none() {
+            None
+        } else {
+            Some(o)
+        }
+    };
     ops::record_with_reason(
         state.clone(),
         "ADD",
         detail,
         started,
         results_of,
-        reason_of,
-        || add_memory_inner(state, body, reason_for_body),
+        outcome_of,
+        || add_memory_inner(state, body, outcome_for_body, true),
     )
     .await
 }
@@ -177,12 +186,18 @@ pub async fn add_memory(
 /// the UI would have to translate.
 const REASON_NO_MEMORIES: &str = "no_memories";
 const REASON_PROVIDER_ERROR: &str = "provider_error";
+const REASON_EMBED_FAILED: &str = "embed_failed";
+const REASON_ADD_FAILED: &str = "add_failed";
 const REASON_UNPARSED: &str = "unparsed_answer";
 
-async fn add_memory_inner(
+pub(super) async fn add_memory_inner(
     state: Arc<AppState>,
     body: MemoryCreate,
-    reason: Arc<std::sync::Mutex<Option<String>>>,
+    outcome: Arc<std::sync::Mutex<ops::Outcome>>,
+    // Whether a failure should keep this add's input. A retry that stores entries one by one
+    // passes `false` and keeps what is left itself: each of those adds is a fragment of the
+    // real request, and stashing fragments would fill the queue with rows nobody asked for.
+    keep_on_failure: bool,
 ) -> ApiResult<Json<Value>> {
     if body.user_id.is_none() && body.agent_id.is_none() && body.run_id.is_none() {
         return Err(ApiError::bad_request(
@@ -213,8 +228,42 @@ async fn add_memory_inner(
     // Bracket the call so the extraction diagnostics belong to this add and not to a
     // concurrent one. See `mem0_core::diagnostics`.
     let diag_before = mem0_core::diagnostics::current_seq();
-    let results = mem.add(messages, opts).await.map_err(ApiError::from)?;
-    record_extraction_outcome(&results, diag_before, &reason);
+    let embed_before = crate::embed_log::current_seq();
+    let results = match mem.add(messages, opts).await {
+        Ok(results) => results,
+        Err(e) => {
+            // The pipeline threw before storing anything. A `4xx` is the caller's own mistake
+            // and would fail identically on a retry; everything else may pass once whatever
+            // is broken — a key, a quota, a disk — is fixed, and the input is already gone
+            // from the caller's side.
+            let api = ApiError::from(e);
+            let mut outcome_now = ops::Outcome::default();
+            if keep_on_failure && api.status.is_server_error() {
+                let reason = if provider_side(&api.detail) {
+                    REASON_PROVIDER_ERROR
+                } else {
+                    REASON_ADD_FAILED
+                };
+                outcome_now.reason = Some(reason.to_string());
+                outcome_now.failed_add_id =
+                    stash_failed_add(&state, &body, reason, &[], Some(api.detail.clone()));
+            }
+            if let Ok(mut slot) = outcome.lock() {
+                *slot = outcome_now;
+            }
+            return Err(api);
+        }
+    };
+    let outcome_now = if keep_on_failure {
+        explain_add(&state, &body, &results, diag_before, embed_before)
+    } else {
+        // Still worth a log line, but the caller owns the queue bookkeeping.
+        log_extraction_diagnostics(diag_before);
+        ops::Outcome::default()
+    };
+    if let Ok(mut slot) = outcome.lock() {
+        *slot = outcome_now;
+    }
 
     // Remember which messages produced each memory, so the detail panel can show the
     // source evidence. Best-effort: the add already happened and must not fail on this.
@@ -273,13 +322,182 @@ async fn add_memory_inner(
     Ok(Json(json!({ "results": out })))
 }
 
-/// Turn the extraction diagnostics into a log line and, when the add produced nothing, a
-/// reason code for the Requests page.
-fn record_extraction_outcome(
+/// Decide what to tell the operator about an add that lost something, and keep the input so
+/// it can be retried (see `docs/adr/0002-failed-add-retry.md`).
+///
+/// Three families lose work and are worth retrying: the model call failed, the answer yielded
+/// no entry at all, and entries that were extracted could not be embedded. A zero the model
+/// itself asked for (`no_memories`) loses nothing, so it is explained but never stashed.
+fn explain_add(
+    state: &AppState,
+    body: &MemoryCreate,
     results: &[mem0::AddResult],
-    since: u64,
-    reason: &Arc<std::sync::Mutex<Option<String>>>,
-) {
+    diag_since: u64,
+    embed_since: u64,
+) -> ops::Outcome {
+    log_extraction_diagnostics(diag_since);
+    let dropped = crate::embed_log::since(embed_since);
+    let diagnostics = mem0_core::diagnostics::since(diag_since);
+    let first = diagnostics.first();
+
+    if !dropped.is_empty() {
+        crate::logging::warn(
+            "embedder",
+            "extracted entries could not be embedded and were dropped",
+            serde_json::json!({
+                "dropped": dropped.len(),
+                "stored": results.len(),
+                "first": dropped.iter().take(3).map(|t| tail_chars(t, 200)).collect::<Vec<_>>(),
+            }),
+        );
+    }
+
+    let reason: Option<&'static str> = if !results.is_empty() {
+        // Whatever embedded is stored; the rest is only recoverable through the stash.
+        (!dropped.is_empty()).then_some(REASON_EMBED_FAILED)
+    } else {
+        match first.map(|d| d.stage) {
+            Some(mem0_core::diagnostics::Stage::LlmError) => Some(REASON_PROVIDER_ERROR),
+            Some(mem0_core::diagnostics::Stage::EmptyAnswer) => Some(REASON_NO_MEMORIES),
+            Some(mem0_core::diagnostics::Stage::Unparsed)
+            | Some(mem0_core::diagnostics::Stage::NoUsableEntries)
+            | Some(mem0_core::diagnostics::Stage::Salvaged) => Some(REASON_UNPARSED),
+            // No extraction ran at all (`infer: false`), so an embedding failure is the only
+            // way this add could have stored nothing.
+            None if !dropped.is_empty() => Some(REASON_EMBED_FAILED),
+            None => None,
+        }
+    };
+    let Some(reason) = reason else {
+        return ops::Outcome::default();
+    };
+    let mut outcome = ops::Outcome {
+        reason: Some(reason.to_string()),
+        failed_add_id: None,
+    };
+    if reason == REASON_NO_MEMORIES {
+        return outcome;
+    }
+    outcome.failed_add_id = stash_failed_add(
+        state,
+        body,
+        reason,
+        &dropped,
+        first.and_then(|d| d.error.clone()),
+    );
+    outcome
+}
+
+/// Whether an error came from the model or the embedder rather than from our own storage.
+///
+/// The codes are the fork's taxonomy, and they are what the Requests page's label is chosen
+/// from: "the model call failed" and "the database refused the write" are different problems
+/// for whoever reads the page.
+fn provider_side(detail: &str) -> bool {
+    ["[LLM_", "[EMBED_", "[RATE_", "[AUTH_", "[CFG_"]
+        .iter()
+        .any(|code| detail.contains(code))
+}
+
+/// Keep the input of an add that stored nothing, so it can be retried later.
+///
+/// Best-effort by design: the add already returned, and failing to stash must not turn a
+/// swallowed provider error into a 500. A missing stash only costs the retry.
+fn stash_failed_add(
+    state: &AppState,
+    body: &MemoryCreate,
+    reason: &str,
+    items: &[String],
+    last_error: Option<String>,
+) -> Option<i64> {
+    let messages: Vec<Value> = body
+        .messages
+        .iter()
+        .map(|m| json!({ "role": m.role, "content": m.content }))
+        .collect();
+    let key = failed_add_key(&messages, body);
+    let scope = (
+        body.user_id.as_deref(),
+        body.agent_id.as_deref(),
+        body.run_id.as_deref(),
+    );
+    let stashed = state.store.lock().ok()?.record_failed_add(
+        &key,
+        reason,
+        scope,
+        body.metadata
+            .as_ref()
+            .map(|m| Value::Object(m.clone()))
+            .as_ref(),
+        &messages,
+        items,
+        last_error.as_deref(),
+        (
+            body.infer,
+            body.memory_type.as_deref(),
+            body.expiration_date.as_deref(),
+        ),
+    );
+    match stashed {
+        Ok(id) => {
+            crate::logging::info(
+                "store",
+                "kept the input of an add that stored nothing",
+                serde_json::json!({
+                    "failed_add_id": id,
+                    "reason": reason,
+                    "entries": items.len(),
+                }),
+            );
+            Some(id)
+        }
+        Err(e) => {
+            crate::logging::warn(
+                "store",
+                "could not keep the input of a failed add",
+                serde_json::json!({ "error": e.to_string() }),
+            );
+            None
+        }
+    }
+}
+
+/// Identity of a failed add: the same messages for the same scope is the same piece of work.
+///
+/// A client retrying through an outage sends the identical body each time, so this collapses
+/// those into one pending row with an attempt count instead of fifty copies.
+fn failed_add_key(messages: &[Value], body: &MemoryCreate) -> String {
+    failed_add_key_for(
+        messages,
+        body.user_id.as_deref(),
+        body.agent_id.as_deref(),
+        body.run_id.as_deref(),
+    )
+}
+
+pub(super) fn failed_add_key_for(
+    messages: &[Value],
+    user_id: Option<&str>,
+    agent_id: Option<&str>,
+    run_id: Option<&str>,
+) -> String {
+    let mut material = String::new();
+    for (label, value) in [("user", user_id), ("agent", agent_id), ("run", run_id)] {
+        if let Some(v) = value {
+            material.push_str(&format!("{label}={v}\n"));
+        }
+    }
+    for m in messages {
+        material.push_str(m["role"].as_str().unwrap_or(""));
+        material.push('\u{1f}');
+        material.push_str(m["content"].as_str().unwrap_or(""));
+        material.push('\n');
+    }
+    mem0_core::util::md5_hex(&material)
+}
+
+/// Turn the extraction diagnostics into a log line.
+fn log_extraction_diagnostics(since: u64) {
     let diagnostics = mem0_core::diagnostics::since(since);
     if diagnostics.is_empty() {
         return;
@@ -315,23 +533,6 @@ fn record_extraction_outcome(
             fields["json_error"] = serde_json::json!(json_error(&d.answer));
         }
         crate::logging::warn("llm", message, fields);
-    }
-    if !results.is_empty() {
-        return;
-    }
-    let Some(first) = diagnostics.first() else {
-        return;
-    };
-    let code = match first.stage {
-        mem0_core::diagnostics::Stage::LlmError => REASON_PROVIDER_ERROR,
-        mem0_core::diagnostics::Stage::EmptyAnswer => REASON_NO_MEMORIES,
-        mem0_core::diagnostics::Stage::Unparsed => REASON_UNPARSED,
-        mem0_core::diagnostics::Stage::NoUsableEntries => REASON_UNPARSED,
-        // Salvaged answers store what they could, so they never reach here with results.
-        mem0_core::diagnostics::Stage::Salvaged => REASON_UNPARSED,
-    };
-    if let Ok(mut slot) = reason.lock() {
-        *slot = Some(code.to_string());
     }
 }
 
@@ -667,6 +868,7 @@ async fn reset_memory_inner(state: Arc<AppState>, auth: AuthContext) -> ApiResul
     mem.reset().await.map_err(ApiError::from)?;
     if let Ok(store) = state.store.lock() {
         let _ = store.clear_memory_inputs();
+        let _ = store.clear_failed_adds();
     }
     Ok(Json(json!({ "message": "All memories reset" })))
 }

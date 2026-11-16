@@ -60,6 +60,10 @@ pub fn build_memory(config_json: &Value, data_dir: &Path) -> Result<Memory> {
         embedder_inherited,
     )
     .map_err(|e| wrap_build("embedder", &cfg.embedder.provider, e))?;
+    // Wrap so an entry that could not be embedded is not lost silently: `add` drops it and
+    // returns a shorter result list, which the retry queue needs to see (`embed_log`).
+    let embedder: Box<dyn mem0::Embedder> =
+        Box::new(crate::embed_log::RecordingEmbedder::new(embedder));
     let embedder_dims = embedder.dims();
 
     // Mirror the Python server: embedder dims are the single source of truth and are

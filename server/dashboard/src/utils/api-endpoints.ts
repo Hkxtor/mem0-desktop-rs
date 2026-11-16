@@ -64,6 +64,12 @@ export const DIAGNOSTICS_ENDPOINTS = {
   STORAGE: "/diagnostics/storage",
 } as const;
 
+/** Adds that stored nothing and kept their input; see the retry drawer on Memories. */
+export const FAILED_ADD_ENDPOINTS = {
+  BASE: "/memories/failed",
+  RETRY: "/memories/failed/retry",
+} as const;
+
 export const REQUEST_ENDPOINTS = {
   BASE: "/requests",
 } as const;

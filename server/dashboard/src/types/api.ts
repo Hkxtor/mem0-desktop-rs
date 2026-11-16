@@ -68,8 +68,43 @@ export interface ApiRequestLog {
   path?: string;
   auth_type?: string;
   /** Why a successful operation produced nothing: `no_memories`, `provider_error`,
-   *  `unparsed_answer`. Null for the ordinary case. */
+   *  `unparsed_answer`, `embed_failed`, `add_failed`. Null for the ordinary case. */
   reason?: string | null;
+  /** The stashed add behind this row, when the input was kept for a retry. */
+  failed_add_id?: number | null;
+}
+
+/** One ADD that stored nothing and kept its input, so it can be retried. */
+export interface ApiFailedAdd {
+  id: number;
+  reason: string;
+  user_id: string | null;
+  agent_id: string | null;
+  run_id: string | null;
+  metadata: Record<string, unknown> | null;
+  messages: { role: string; content: string }[];
+  /** Entries extraction produced (only when an embedding failure lost them). */
+  items: string[];
+  infer: boolean;
+  memory_type: string | null;
+  expiration_date: string | null;
+  attempts: number;
+  last_error: string | null;
+  created_at: string;
+  last_attempt_at: string;
+}
+
+export interface ApiFailedAdds {
+  items: ApiFailedAdd[];
+  total: number;
+}
+
+export interface ApiRetryResult {
+  retried: number;
+  stored: number;
+  failed: number;
+  remaining: number;
+  stopped_reason: string | null;
 }
 
 /** One line of the application log (JSONL in the data directory). */

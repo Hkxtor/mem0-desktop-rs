@@ -225,7 +225,15 @@ async fn pruning_drops_old_rows_and_keeps_recent_ones() {
     store.log_request("GET", "/old", 200, 1.0, "none").unwrap();
     store.log_request("GET", "/new", 200, 1.0, "none").unwrap();
     store
-        .log_memory_operation("ADD", "user:alice", Some(0), 200, 1.0, Some("no_memories"))
+        .log_memory_operation(
+            "ADD",
+            "user:alice",
+            Some(0),
+            200,
+            1.0,
+            Some("no_memories"),
+            None,
+        )
         .unwrap();
 
     // Backdate everything, then add one fresh row per table.
@@ -241,7 +249,7 @@ async fn pruning_drops_old_rows_and_keeps_recent_ones() {
         .log_request("GET", "/fresh", 200, 1.0, "none")
         .unwrap();
     store
-        .log_memory_operation("SEARCH", "hiking", Some(1), 200, 1.0, None)
+        .log_memory_operation("SEARCH", "hiking", Some(1), 200, 1.0, None, None)
         .unwrap();
 
     let (requests, operations) = store.prune_history(14).unwrap();
@@ -279,7 +287,15 @@ async fn an_old_database_gains_the_reason_column() {
     }
     let store = mem0_desktop_rs::store::StateStore::open(&path).unwrap();
     store
-        .log_memory_operation("ADD", "user:alice", Some(0), 200, 1.0, Some("no_memories"))
+        .log_memory_operation(
+            "ADD",
+            "user:alice",
+            Some(0),
+            200,
+            1.0,
+            Some("no_memories"),
+            None,
+        )
         .expect("the column must exist after the migration");
     let ops = store.list_memory_operations(10).unwrap();
     assert_eq!(ops[0]["reason"], json!("no_memories"));

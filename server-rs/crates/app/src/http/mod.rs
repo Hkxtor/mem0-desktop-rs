@@ -8,6 +8,7 @@ pub mod request_log;
 pub mod routes_auth;
 pub mod routes_config;
 pub mod routes_diagnostics;
+pub mod routes_failed_adds;
 pub mod routes_health;
 pub mod routes_keys;
 pub mod routes_logs;
@@ -185,7 +186,9 @@ pub fn build_router_arc(state: Arc<AppState>) -> Router {
         .route(
             "/logs/requests",
             axum::routing::get(routes_logs::request_log),
-        );
+        )
+        // The retry queue: what an add kept after it stored nothing, plus the way to redo it.
+        .merge(routes_failed_adds::routes());
     public
         .merge(protected)
         .merge(static_r)

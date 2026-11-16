@@ -9,6 +9,7 @@ pub mod categories;
 pub mod config;
 pub mod decision;
 pub mod desktop_settings;
+pub mod embed_log;
 pub mod http;
 pub mod keyring;
 pub mod lock;
@@ -148,24 +149,36 @@ pub async fn start_server(
 /// Must stay above the Analytics page's 12-day window, otherwise pruning would make the
 /// figures fall off a cliff instead of just dropping old detail.
 pub const HISTORY_RETENTION_DAYS: i64 = 14;
+
+/// How many pending retries are kept, oldest evicted past this.
+///
+/// The retry queue holds memory text and grows exactly when the upstream is unstable, so it is
+/// bounded by count as well as by age: a day of rate limiting can otherwise pile up thousands
+/// of rows nobody will read. See `docs/adr/0002-failed-add-retry.md`.
+pub const FAILED_ADD_CAP: i64 = 500;
 const PRUNE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
 
-/// Trim the two log tables at startup and every six hours after that.
+/// Trim the two log tables and the retry queue at startup and every six hours after that.
 ///
 /// Both grow without bound otherwise: a dashboard tab left open polls enough endpoints to
-/// add thousands of rows a day. Pruning runs off the request path so a slow delete never
-/// delays a memory call.
+/// add thousands of rows a day, and every failed add keeps its input. Pruning runs off the
+/// request path so a slow delete never delays a memory call.
 fn spawn_history_pruning(state: std::sync::Arc<http::AppState>) {
     tokio::spawn(async move {
         loop {
             // The guard is not `Send`, so it must not be alive across the sleep: the
             // whole prune happens inside this block.
             let outcome = match state.store.lock() {
-                Ok(store) => Some(store.prune_history(HISTORY_RETENTION_DAYS)),
+                Ok(store) => Some((
+                    store.prune_history(HISTORY_RETENTION_DAYS),
+                    store.prune_failed_adds(HISTORY_RETENTION_DAYS, FAILED_ADD_CAP),
+                )),
                 Err(_) => None,
             };
             match outcome {
-                Some(Ok((requests, operations))) if requests + operations > 0 => {
+                Some((Ok((requests, operations)), Ok(failed_adds)))
+                    if requests + operations + failed_adds > 0 =>
+                {
                     logging::info(
                         "store",
                         "pruned log history",
@@ -173,11 +186,13 @@ fn spawn_history_pruning(state: std::sync::Arc<http::AppState>) {
                             "retention_days": HISTORY_RETENTION_DAYS,
                             "request_rows": requests,
                             "operation_rows": operations,
+                            "failed_add_rows": failed_adds,
+                            "failed_add_cap": FAILED_ADD_CAP,
                         }),
                     );
                 }
-                Some(Ok(_)) | None => {}
-                Some(Err(e)) => logging::warn(
+                Some((Ok(_), Ok(_))) | None => {}
+                Some((Err(e), _)) | Some((_, Err(e))) => logging::warn(
                     "store",
                     "pruning log history failed",
                     serde_json::json!({"error": e.to_string()}),

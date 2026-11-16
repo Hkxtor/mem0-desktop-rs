@@ -44,16 +44,32 @@ fn persist(
     results: Option<i64>,
     status: i64,
     latency_ms: f64,
-    reason: Option<&str>,
+    outcome: Option<&Outcome>,
 ) {
     // Logging must never turn a successful memory call into an error: this is bookkeeping.
     if let Ok(store) = state.store.lock() {
-        if let Err(e) =
-            store.log_memory_operation(operation, detail, results, status, latency_ms, reason)
-        {
+        if let Err(e) = store.log_memory_operation(
+            operation,
+            detail,
+            results,
+            status,
+            latency_ms,
+            outcome.and_then(|o| o.reason.as_deref()),
+            outcome.and_then(|o| o.failed_add_id),
+        ) {
             eprintln!("failed to record memory operation: {e}");
         }
     }
+}
+
+/// What an operation wants the Requests page to say about it.
+///
+/// `reason` explains a zero the operator cannot otherwise decode; `failed_add_id` points at
+/// the stash holding the input, so the row can offer a retry.
+#[derive(Debug, Clone, Default)]
+pub struct Outcome {
+    pub reason: Option<String>,
+    pub failed_add_id: Option<i64>,
 }
 
 /// Run a handler body and record the outcome either way.
@@ -103,11 +119,14 @@ where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = Result<T, ApiError>>,
     C: Fn(&T) -> Option<i64>,
-    R: Fn(&T) -> Option<String>,
+    R: Fn(&Result<T, ApiError>) -> Option<Outcome>,
 {
-    let outcome = body().await;
+    let result = body().await;
     let latency_ms = started.elapsed().as_secs_f64() * 1000.0;
-    match &outcome {
+    // The closure sees failures too: an add that threw still knows why, and may have kept the
+    // input it could not process.
+    let outcome = reason_of(&result);
+    match &result {
         Ok(payload) => persist(
             &state,
             operation,
@@ -115,7 +134,7 @@ where
             results_of(payload),
             200,
             latency_ms,
-            reason_of(payload).as_deref(),
+            outcome.as_ref(),
         ),
         Err(e) => persist(
             &state,
@@ -124,10 +143,10 @@ where
             None,
             e.status.as_u16() as i64,
             latency_ms,
-            None,
+            outcome.as_ref(),
         ),
     }
-    outcome
+    result
 }
 
 /// Record an operation that does not return a payload worth counting.

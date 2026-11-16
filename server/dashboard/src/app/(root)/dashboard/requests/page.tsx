@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { format, formatDistanceToNow } from "date-fns";
 import { zhCN } from "date-fns/locale";
 import { RefreshCw } from "lucide-react";
@@ -24,6 +25,8 @@ type RequestLog = {
   statusCode: number;
   latencyMs: number;
   reason: string | null;
+  /** The stashed add behind this row, when its input was kept for a retry. */
+  failedAddId: number | null;
 };
 
 /// Why an operation that succeeded produced nothing. The provider's own message lives in
@@ -33,6 +36,8 @@ const REASON_LABELS: Record<string, string> = {
   no_memories: "未抽出",
   provider_error: "模型调用失败",
   unparsed_answer: "回答无法解析",
+  embed_failed: "嵌入失败",
+  add_failed: "添加失败",
 };
 
 const REASON_HINTS: Record<string, string> = {
@@ -40,6 +45,9 @@ const REASON_HINTS: Record<string, string> = {
   provider_error: "模型调用失败，抽取被跳过。详情见「日志」页的应用日志。",
   unparsed_answer:
     "模型的回答不是完整的 JSON——常见原因是回答在输出长度上限处被截断。日志页会写明是截断还是格式错误，以及回答的结尾。",
+  embed_failed:
+    "记忆取到了，但有几条拿不到向量，因此没有存下。原文已暂存，可在「记忆」页重试。",
+  add_failed: "存储环节出错，什么都没写进去。原文已暂存，可在「记忆」页重试。",
 };
 
 const REQUEST_LOG_LIMIT = 200;
@@ -89,6 +97,7 @@ const normalizeLog = (entry: ApiRequestLog): RequestLog => {
     statusCode: entry.status_code,
     latencyMs: entry.latency_ms,
     reason: entry.reason ?? null,
+    failedAddId: entry.failed_add_id ?? null,
   };
 };
 
@@ -159,13 +168,25 @@ export default function RequestsPage() {
             ) : (
               <span className="tabular-nums">{value}</span>
             )}
-            {value === 0 && row.reason && (
+            {/* Any reason is worth showing: a 500 with a stashed input has no count at all,
+                and an embedding failure can leave a partial count behind. */}
+            {row.reason && (
               <span
                 title={REASON_HINTS[row.reason] ?? row.reason}
                 className="cursor-help rounded border border-memBorder-primary bg-surface-default-secondary px-1.5 py-0.5 text-[11px] text-onSurface-default-secondary"
               >
                 {label ?? row.reason}
               </span>
+            )}
+            {row.failedAddId !== null && (
+              <Link
+                href="/dashboard/memories?failed=1"
+                data-testid={`stashed-${row.id}`}
+                title="原文已暂存，可在「记忆」页重试"
+                className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700 hover:underline dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-300"
+              >
+                已暂存
+              </Link>
             )}
           </span>
         );

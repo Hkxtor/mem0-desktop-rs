@@ -70,7 +70,39 @@ fn migrate(conn: &Connection) -> Result<()> {
     add("request_logs", "auth_type", "TEXT NOT NULL DEFAULT 'none'")?;
     // Why a successful memory operation produced nothing.
     add("memory_operations", "reason", "TEXT")?;
+    // The stashed add behind an operation that stored nothing but kept its input.
+    add("memory_operations", "failed_add_id", "INTEGER")?;
     Ok(())
+}
+
+/// The columns every failed-add read selects, so the mapper below matches them by name.
+const FAILED_ADD_COLUMNS: &str =
+    "SELECT id, reason, user_id, agent_id, run_id, metadata, messages, \
+     items, infer, memory_type, expiration_date, attempts, last_error, created_at, \
+     last_attempt_at FROM failed_adds";
+
+/// One `failed_adds` row as the dashboard's drawer renders it.
+fn failed_add_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
+    let messages: String = r.get("messages")?;
+    let items: String = r.get("items")?;
+    let metadata: Option<String> = r.get("metadata")?;
+    Ok(serde_json::json!({
+        "id": r.get::<_, i64>("id")?,
+        "reason": r.get::<_, String>("reason")?,
+        "user_id": r.get::<_, Option<String>>("user_id")?,
+        "agent_id": r.get::<_, Option<String>>("agent_id")?,
+        "run_id": r.get::<_, Option<String>>("run_id")?,
+        "metadata": metadata.and_then(|m| serde_json::from_str::<Value>(&m).ok()),
+        "messages": serde_json::from_str::<Value>(&messages).unwrap_or(Value::Array(vec![])),
+        "items": serde_json::from_str::<Value>(&items).unwrap_or(Value::Array(vec![])),
+        "infer": r.get::<_, i64>("infer")? != 0,
+        "memory_type": r.get::<_, Option<String>>("memory_type")?,
+        "expiration_date": r.get::<_, Option<String>>("expiration_date")?,
+        "attempts": r.get::<_, i64>("attempts")?,
+        "last_error": r.get::<_, Option<String>>("last_error")?,
+        "created_at": r.get::<_, String>("created_at")?,
+        "last_attempt_at": r.get::<_, String>("last_attempt_at")?,
+    }))
 }
 
 pub struct StateStore {
@@ -138,6 +170,32 @@ CREATE TABLE IF NOT EXISTS memory_inputs (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_memory_inputs_memory_id ON memory_inputs(memory_id, seq);
+-- Failed adds: an ADD that stored nothing for a reason that may pass (provider error,
+-- unparseable answer, entries that could not be embedded). Keeps the material a retry
+-- needs — the submitted messages and, when extraction produced them, the entries — so
+-- the caller does not have to resubmit. Deleted the moment a retry stores something;
+-- bounded by retention and a row cap because it holds memory text.
+CREATE TABLE IF NOT EXISTS failed_adds (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dedup_key TEXT NOT NULL UNIQUE,
+    reason TEXT NOT NULL,
+    user_id TEXT,
+    agent_id TEXT,
+    run_id TEXT,
+    metadata TEXT,
+    messages TEXT NOT NULL,
+    items TEXT NOT NULL DEFAULT '[]',
+    -- The add's own options, so a retry replays the same request: `infer: false` stores the
+    -- message verbatim and must not silently turn into an extraction on the retry.
+    infer INTEGER NOT NULL DEFAULT 1,
+    memory_type TEXT,
+    expiration_date TEXT,
+    attempts INTEGER NOT NULL DEFAULT 1,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    last_attempt_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_failed_adds_created_at ON failed_adds(created_at);
 CREATE TABLE IF NOT EXISTS refresh_token_jtis (
     jti TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id),
@@ -452,6 +510,11 @@ impl StateStore {
 
     /// Record one memory operation. `result_count` is how many memories the
     /// operation produced or touched, when that number exists.
+    ///
+    /// The last two arguments are optional annotations that always travel together — why the
+    /// result was empty, and which stashed add it points at — so they stay separate rather
+    /// than becoming a one-use struct.
+    #[allow(clippy::too_many_arguments)]
     pub fn log_memory_operation(
         &self,
         operation: &str,
@@ -460,14 +523,148 @@ impl StateStore {
         status: i64,
         latency_ms: f64,
         reason: Option<&str>,
+        failed_add_id: Option<i64>,
     ) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
         self.conn.execute(
-            "INSERT INTO memory_operations(operation, detail, result_count, status_code, latency_ms, created_at, reason)
-             VALUES(?1,?2,?3,?4,?5,?6,?7)",
-            params![operation, detail, result_count, status, latency_ms, now, reason],
+            "INSERT INTO memory_operations(operation, detail, result_count, status_code, latency_ms, created_at, reason, failed_add_id)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+            params![
+                operation,
+                detail,
+                result_count,
+                status,
+                latency_ms,
+                now,
+                reason,
+                failed_add_id
+            ],
         )?;
         Ok(())
+    }
+
+    // ---- failed adds ----
+
+    /// Keep the material of an add that stored nothing, or merge into the row already
+    /// holding the same input.
+    ///
+    /// `dedup_key` is a hash of the messages and the scope, so a client retrying through an
+    /// outage accumulates attempts on one row instead of filling the table with copies.
+    /// Returns the row id either way, which is what the Requests row points at.
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_failed_add(
+        &self,
+        dedup_key: &str,
+        reason: &str,
+        scope: (Option<&str>, Option<&str>, Option<&str>),
+        metadata: Option<&Value>,
+        messages: &[Value],
+        items: &[String],
+        error: Option<&str>,
+        options: (Option<bool>, Option<&str>, Option<&str>),
+    ) -> Result<i64> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let metadata = metadata.map(|m| m.to_string());
+        let messages = serde_json::to_string(&Value::Array(messages.to_vec()))?;
+        let items = serde_json::to_string(&items.to_vec())?;
+        self.conn.execute(
+            "INSERT INTO failed_adds(dedup_key, reason, user_id, agent_id, run_id, metadata,
+                                     messages, items, infer, memory_type, expiration_date,
+                                     attempts, last_error, created_at, last_attempt_at)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,1,?12,?13,?13)
+             ON CONFLICT(dedup_key) DO UPDATE SET
+                 reason = excluded.reason,
+                 attempts = failed_adds.attempts + 1,
+                 last_error = excluded.last_error,
+                 last_attempt_at = excluded.last_attempt_at,
+                 -- A later attempt may have got further than the first: keep whichever
+                 -- carries extracted entries. `messages` needs no merge — the key is a hash
+                 -- of them, so a conflicting row always carries the same messages.
+                 items = CASE WHEN excluded.items = '[]' THEN failed_adds.items ELSE excluded.items END,
+                 metadata = COALESCE(excluded.metadata, failed_adds.metadata)",
+            params![
+                dedup_key,
+                reason,
+                scope.0,
+                scope.1,
+                scope.2,
+                metadata,
+                messages,
+                items,
+                if options.0.unwrap_or(true) { 1 } else { 0 },
+                options.1,
+                options.2,
+                error,
+                now
+            ],
+        )?;
+        let id: i64 = self.conn.query_row(
+            "SELECT id FROM failed_adds WHERE dedup_key = ?1",
+            params![dedup_key],
+            |r| r.get(0),
+        )?;
+        Ok(id)
+    }
+
+    /// Pending retries, newest first, in the shape the drawer renders.
+    pub fn list_failed_adds(&self, limit: i64) -> Result<Vec<Value>> {
+        let mut stmt = self
+            .conn
+            .prepare(&format!("{FAILED_ADD_COLUMNS} ORDER BY id DESC LIMIT ?1"))?;
+        let rows = stmt.query_map(params![limit], failed_add_row)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// One pending retry, with everything a retry needs.
+    pub fn get_failed_add(&self, id: i64) -> Result<Option<Value>> {
+        let mut stmt = self
+            .conn
+            .prepare(&format!("{FAILED_ADD_COLUMNS} WHERE id = ?1"))?;
+        let mut rows = stmt.query_map(params![id], failed_add_row)?;
+        Ok(rows.next().transpose()?)
+    }
+
+    /// Ids of the oldest pending retries, for a batch.
+    pub fn pending_failed_add_ids(&self, limit: i64) -> Result<Vec<i64>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM failed_adds ORDER BY id ASC LIMIT ?1")?;
+        let rows = stmt.query_map(params![limit], |r| r.get::<_, i64>(0))?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    pub fn count_failed_adds(&self) -> Result<i64> {
+        Ok(self
+            .conn
+            .query_row("SELECT COUNT(*) FROM failed_adds", [], |r| r.get(0))?)
+    }
+
+    /// Forget one pending retry: the retry stored something, or the operator gave up.
+    pub fn delete_failed_add(&self, id: i64) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM failed_adds WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn delete_all_failed_adds(&self) -> Result<usize> {
+        Ok(self.conn.execute("DELETE FROM failed_adds", [])?)
+    }
+
+    /// Trim the retry queue: everything older than `days`, then down to `cap` rows.
+    ///
+    /// This table holds memory text and grows exactly when the upstream is unstable, so it
+    /// is bounded twice — by age and by count. Returns how many rows went.
+    pub fn prune_failed_adds(&self, days: i64, cap: i64) -> Result<usize> {
+        let cutoff = (chrono::Utc::now() - chrono::Duration::days(days)).to_rfc3339();
+        let mut removed = self.conn.execute(
+            "DELETE FROM failed_adds WHERE created_at < ?1",
+            params![cutoff],
+        )?;
+        removed += self.conn.execute(
+            "DELETE FROM failed_adds WHERE id NOT IN (SELECT id FROM failed_adds ORDER BY id DESC LIMIT ?1)",
+            params![cap],
+        )?;
+        Ok(removed)
     }
 
     /// Delete request and operation rows older than `days`.
@@ -495,7 +692,8 @@ impl StateStore {
     /// are exactly the rows that drown the interesting ones.
     pub fn list_memory_operations(&self, limit: i64) -> Result<Vec<Value>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, operation, detail, result_count, status_code, latency_ms, created_at, reason
+            "SELECT id, operation, detail, result_count, status_code, latency_ms, created_at,
+                    reason, failed_add_id
              FROM memory_operations WHERE operation <> 'LIST' ORDER BY id DESC LIMIT ?1",
         )?;
         let rows = stmt.query_map(params![limit], |r| {
@@ -508,6 +706,7 @@ impl StateStore {
                 "latency_ms": r.get::<_, f64>(5)?,
                 "created_at": r.get::<_, String>(6)?,
                 "reason": r.get::<_, Option<String>>(7)?,
+                "failed_add_id": r.get::<_, Option<i64>>(8)?,
             }))
         })?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
@@ -557,6 +756,12 @@ impl StateStore {
             "DELETE FROM memory_inputs WHERE memory_id = ?1",
             params![memory_id],
         )?;
+        Ok(())
+    }
+
+    /// Drop the retry queue. Used by a full reset: nothing is pending after one.
+    pub fn clear_failed_adds(&self) -> Result<()> {
+        self.conn.execute("DELETE FROM failed_adds", [])?;
         Ok(())
     }
 
@@ -708,6 +913,89 @@ impl StateStore {
 mod tests {
     use super::*;
     use sha2::Digest;
+
+    fn stash(s: &StateStore, key: &str) -> i64 {
+        s.record_failed_add(
+            key,
+            "provider_error",
+            (Some("u"), None, None),
+            None,
+            &[serde_json::json!({"role": "user", "content": key})],
+            &[],
+            Some("429"),
+            (Some(true), None, None),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn the_same_failed_add_is_one_row_that_counts_attempts() {
+        let s = StateStore::in_memory().unwrap();
+        let first = stash(&s, "same");
+        let again = stash(&s, "same");
+        assert_eq!(first, again, "the same input is the same piece of work");
+        assert_eq!(s.count_failed_adds().unwrap(), 1);
+        assert_eq!(s.get_failed_add(first).unwrap().unwrap()["attempts"], 2);
+    }
+
+    #[test]
+    fn the_retry_queue_is_bounded_by_count_as_well_as_age() {
+        let s = StateStore::in_memory().unwrap();
+        for i in 0..5 {
+            stash(&s, &format!("k{i}"));
+        }
+        // A cap below what is stored evicts the oldest, because the newest are the ones the
+        // operator has just been looking at.
+        assert_eq!(s.prune_failed_adds(14, 3).unwrap(), 2);
+        let rows = s.list_failed_adds(10).unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0]["messages"][0]["content"], "k4");
+        assert_eq!(rows[2]["messages"][0]["content"], "k2");
+
+        // Age drops the rest of whatever is old.
+        s.conn
+            .execute(
+                "UPDATE failed_adds SET created_at = '2000-01-01T00:00:00+00:00'",
+                [],
+            )
+            .unwrap();
+        assert_eq!(s.prune_failed_adds(14, 3).unwrap(), 3);
+        assert_eq!(s.count_failed_adds().unwrap(), 0);
+    }
+
+    #[test]
+    fn a_later_attempt_keeps_the_entries_the_first_one_missing_none_had() {
+        let s = StateStore::in_memory().unwrap();
+        // First failure had no extracted entries; a later one did. The row must end up with the
+        // entries, because they are the only thing that saves a re-extraction.
+        let id = s
+            .record_failed_add(
+                "k",
+                "provider_error",
+                (Some("u"), None, None),
+                None,
+                &[serde_json::json!({"role": "user", "content": "hi"})],
+                &[],
+                Some("down"),
+                (Some(true), None, None),
+            )
+            .unwrap();
+        s.record_failed_add(
+            "k",
+            "embed_failed",
+            (Some("u"), None, None),
+            None,
+            &[serde_json::json!({"role": "user", "content": "hi"})],
+            &["I write Rust".to_string()],
+            Some("no vectors"),
+            (Some(true), None, None),
+        )
+        .unwrap();
+        let row = s.get_failed_add(id).unwrap().unwrap();
+        assert_eq!(row["reason"], "embed_failed");
+        assert_eq!(row["items"][0], "I write Rust");
+        assert_eq!(row["attempts"], 2);
+    }
 
     #[test]
     fn schema_creates_and_local_user_is_not_loginable() {

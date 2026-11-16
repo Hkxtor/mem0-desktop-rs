@@ -3,7 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ExternalLink, RefreshCw, Tags, Trash2, X } from "lucide-react";
+import {
+  AlertTriangle,
+  ExternalLink,
+  RefreshCw,
+  Tags,
+  Trash2,
+  X,
+} from "lucide-react";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { displayApiUrl } from "@/lib/api-url";
@@ -15,6 +22,7 @@ import { DataTable } from "@/components/shared/data-table";
 import { TableSkeleton } from "@/components/shared/table-skeleton";
 import { EmptyState } from "@/components/self-hosted/empty-state";
 import { StorageHint } from "@/components/self-hosted/storage-hint";
+import FailedAddsDrawer from "@/components/self-hosted/failed-adds-drawer";
 import DeleteConfirmationModal from "@/components/ui/delete-confirmation-modal";
 import {
   Sheet,
@@ -34,9 +42,18 @@ import {
 import { toast } from "@/components/ui/use-toast";
 import { getErrorMessage } from "@/lib/error-message";
 import { api } from "@/utils/api";
-import { MEMORY_ENDPOINTS, SYSTEMONE_ENDPOINTS } from "@/utils/api-endpoints";
+import {
+  FAILED_ADD_ENDPOINTS,
+  MEMORY_ENDPOINTS,
+  SYSTEMONE_ENDPOINTS,
+} from "@/utils/api-endpoints";
 import { useApiQuery } from "@/hooks/use-api-query";
-import { Memory, MemoryHistoryEntry, MemoryInput } from "@/types/api";
+import {
+  ApiFailedAdds,
+  Memory,
+  MemoryHistoryEntry,
+  MemoryInput,
+} from "@/types/api";
 import { CategoriesDisplay } from "@/components/ui/categories-display";
 
 const PAGE_SIZE = 20;
@@ -123,6 +140,10 @@ export default function MemoriesPage() {
   const [classifying, setClassifying] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [reclassifying, setReclassifying] = useState(false);
+
+  // Adds that stored nothing and kept their input. The Requests page links here with
+  // ?failed=1 so "已暂存" leads straight to the queue.
+  const [failedOpen, setFailedOpen] = useState(false);
   // Ids the model answered "nothing fits" for, this session. Skipped on the next run
   // so an empty answer is not paid for twice.
   const noMatchRef = useRef<string[]>([]);
@@ -160,6 +181,22 @@ export default function MemoriesPage() {
   );
   const unclassified = stats?.unclassified ?? 0;
   const classifierConfigured = stats?.configured ?? false;
+
+  const { data: failedAdds, refetch: refetchFailed } =
+    useApiQuery<ApiFailedAdds>(
+      async () => {
+        const res = await api.get<ApiFailedAdds>(FAILED_ADD_ENDPOINTS.BASE);
+        const items = Array.isArray(res.data?.items) ? res.data.items : [];
+        return { items, total: Number(res.data?.total ?? items.length) };
+      },
+      { initialData: { items: [], total: 0 } },
+    );
+  const failedTotal = failedAdds?.total ?? 0;
+
+  // Arriving from a Requests row that says "已暂存".
+  useEffect(() => {
+    if (searchParams.get("failed") === "1") setFailedOpen(true);
+  }, [searchParams]);
 
   // Re-fetch when the URL category filter changes (the query hook only refetches
   // on demand, so drive it from here).
@@ -474,6 +511,7 @@ export default function MemoriesPage() {
           onClick={() => {
             void refetch();
             void refetchStats();
+            void refetchFailed();
           }}
         >
           <RefreshCw className="size-3.5 mr-1" />
@@ -508,6 +546,15 @@ export default function MemoriesPage() {
             >
               <Tags className="size-3.5 mr-1" />
               分类 {unclassified} 条未分类记忆
+            </Button>
+            <Button
+              size="sm"
+              variant={failedTotal > 0 ? "default" : "outline"}
+              data-testid="failed-adds-open"
+              onClick={() => setFailedOpen(true)}
+            >
+              <AlertTriangle className="size-3.5 mr-1" />
+              待重试 {failedTotal}
             </Button>
             {!classifierConfigured && (
               <span className="text-xs text-onSurface-default-tertiary">
@@ -877,6 +924,16 @@ export default function MemoriesPage() {
           )}
         </SheetContent>
       </Sheet>
+
+      <FailedAddsDrawer
+        open={failedOpen}
+        onOpenChange={setFailedOpen}
+        onStored={() => {
+          // A retry stored memories, so the list behind the drawer is stale.
+          void refetch();
+          void refetchStats();
+        }}
+      />
 
       <DeleteConfirmationModal
         isOpen={!!memoryToDelete}
