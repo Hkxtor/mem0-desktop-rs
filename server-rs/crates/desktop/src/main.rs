@@ -151,7 +151,7 @@ fn main() {
             // Window pointed at the loopback server. With "start minimized" the window
             // is built hidden: the server, tray icon and single-instance lock all come
             // up, but nothing pops on screen at login.
-            let _window = tauri::WebviewWindowBuilder::new(
+            let mut window = tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
                 tauri::WebviewUrl::External(url.parse().unwrap()),
@@ -162,8 +162,14 @@ fn main() {
             // F12 / Ctrl+Shift+I opens DevTools in the WebView2. This is a
             // loopback-only single-user local app, so the usual release-mode
             // concern does not apply; it makes field debugging possible.
-            .devtools(true)
-            .build()?;
+            .devtools(true);
+            // The window needs the icon explicitly: the exe carries one for Explorer, but a
+            // window that never sets it gets the generic blank page in the title bar, taskbar
+            // and Alt-Tab. Same source as the tray, so all three agree.
+            if let Some(icon) = app.default_window_icon() {
+                window = window.icon(icon.clone())?;
+            }
+            let _window = window.build()?;
 
             // Tray: Open dashboard / Open data folder / Quit.
             let open = MenuItem::with_id(app, "open", "Open dashboard", true, None::<&str>)?;
