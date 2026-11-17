@@ -348,6 +348,7 @@ pub fn apply_update(previous: &Value, updates: &mut Value) -> Value {
         drop_removed_vendor_endpoint(previous, updates, &mut next);
         drop_replaced_credentials(previous, &mut next, updates);
         let _ = normalize_api_keys(&mut next, updates);
+        drop_empty_input_type(&mut next);
         next
     })
 }
@@ -364,7 +365,25 @@ pub fn apply_update_checked(
     drop_removed_vendor_endpoint(previous, updates, &mut next);
     drop_replaced_credentials(previous, &mut next, updates);
     normalize_api_keys(&mut next, updates)?;
+    drop_empty_input_type(&mut next);
     Ok(next)
+}
+
+/// An empty `embedder.config.input_type` means "do not send the field", and a stored empty
+/// string is indistinguishable from a stored `auto` the moment anything reads it back. The
+/// merge keeps a section's old value when the update omits it, so clearing the select has to
+/// arrive as `""` — and then this is what removes it.
+fn drop_empty_input_type(config: &mut Value) {
+    let Some(conf) = section_config_mut(config, "embedder") else {
+        return;
+    };
+    let empty = conf
+        .get("input_type")
+        .and_then(|v| v.as_str())
+        .is_some_and(|v| v.trim().is_empty());
+    if empty {
+        conf.remove("input_type");
+    }
 }
 
 /// Extract a mutable reference to a section's config object, if present.

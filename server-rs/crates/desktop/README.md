@@ -76,6 +76,59 @@ curl http://127.0.0.1:8888/keys/status
 
 为什么这样设计、否决了哪些替代方案，见 [`server-rs/docs/adr/0001-api-key-pools.md`](../../docs/adr/0001-api-key-pools.md)。
 
+## 嵌入模型（Embedding）
+
+在 **Configuration → 嵌入模型** 里配置：provider、模型、密钥、Base URL、维度，以及（少数模型才需要的）**输入类型**。
+
+### 输入类型（`input_type`）
+
+有些模型是**非对称**的：写进库里的句子和用来检索的问句要用不同的方式编码。NVIDIA 的 `nemotron-3.5-embed-*` 就属于这一类，而且不带这个字段会**直接 400**（`'input_type' parameter is required for asymmetric models`）。
+
+反过来，OpenAI 官方端点对不认识的请求字段会 400（`Unrecognized request argument supplied`），所以这个字段**默认不发送**：
+
+| 选择 | 请求体里出现什么 |
+|---|---|
+| 不发送（默认） | 没有 `input_type` 字段，任何 provider 都接受 |
+| `auto` | 存记忆时发 `passage`，检索时发 `query`，改写（update）按 `passage` |
+| `query` / `passage` | 无论做什么都发这个值 |
+
+填错值（比如 `sideways`）会在保存时被拒，并说明只接受 `auto` / `query` / `passage`——不会静默变成「什么都不发」。把选择改回「不发送」并保存，配置里的键会被删除，而不是留一个空字符串。
+
+> 给已经装满记忆的库**打开**这个开关，等于换了一套编码空间：旧的向量仍然按 passage 存、新的按 query 存，检索质量会下降。要么接受，要么按下面的流程重建一遍。
+
+### 换嵌入模型的流程
+
+代码里**没有**「重建索引」这种操作，只有「导出 → 清空 → 重新导入」：
+
+```bash
+# 1. 先处理待重试队列（reset 会一并清掉）
+#    界面：记忆 → 待重试 N
+# 2. 导出（上限 1000 条）
+curl -s "http://127.0.0.1:PORT/export?format=json" -H "X-API-Key: ..." > mem0-backup.json
+# 3. 清空（界面没有这个按钮）
+curl -s -X POST "http://127.0.0.1:PORT/reset" -H "X-API-Key: ..."
+# 4. 在界面上改 provider / 模型 / 维度 / 输入类型，保存
+# 5. 导入，用新模型重新嵌入（保留 id、metadata、时间戳，不重新抽取）
+curl -s -X POST "http://127.0.0.1:PORT/import" -H "X-API-Key: ..." \
+     -H "Content-Type: application/json" -d @mem0-backup.json
+```
+
+维度变了而没清空时，保存会被拒并提示 `holds N vectors at width A but config says B; export and re-import`——表是空的就会自动按新宽度重建，所以全新安装随便改。
+
+**维度必须填对**：它不只是记账，会作为 `dimensions`（OpenAI 兼容）或 `outputDimensionality`（Gemini）真的发给上游。留空则用模型默认宽度（OpenAI 1536、Gemini 768），而库里表的宽度沿用旧值，于是第一次写入就 `dimension mismatch`。
+
+### NVIDIA NIM（`integrate.api.nvidia.com`）
+
+provider 选 `openai`（OpenAI 兼容的 `/v1/embeddings`），Base URL 填 `https://integrate.api.nvidia.com/v1`。实测（2026-11，一个普通 nvapi 密钥）：
+
+| 模型 | 维度 | 需要 `input_type` | 单次耗时（中位） |
+|---|---|---|---|
+| `nvidia/nemotron-3.5-embed-1b` | 2048，可裁到 1024 / 512 | 是 | 0.76s |
+| `nvidia/nemotron-3-embed-1b` | 2048（不可裁剪） | 否 | 0.58s |
+| `nvidia/nemotron-3.5-embed-8b` | 4096，可裁到 1024 | 是 | 23.9s |
+
+8B 那个慢到会撞上游 120 秒网关超时（并发几个请求就 504），不建议日常使用；1B 的两个都够快。`nvidia/embed-qa-4`、`nv-embedqa-mistral-7b-v2`、`snowflake/arctic-embed-l` 等旧模型在 `/v1/models` 里列着，但对普通密钥返回 `404 Function … Not found for account`。
+
 ## 记忆分类（Categories）
 
 可选。配置之后，每条新记忆都会被分类模型打上 0..n 个标签，取值来自固定的 15 个预设：`personal_details`、`family`、`professional_details`、`sports`、`travel`、`food`、`music`、`health`、`technology`、`hobbies`、`fashion`、`entertainment`、`milestones`、`user_preferences`、`misc`。标签存在记忆的 payload 里，导出时原样带出，导入时原样保留。

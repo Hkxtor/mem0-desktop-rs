@@ -6,6 +6,7 @@ type ProviderConfig = {
     model?: string;
     api_key?: string;
     embedding_dims?: number;
+    input_type?: string;
     [key: string]: unknown;
   };
 };
@@ -154,6 +155,7 @@ export const buildProviderConfig = ({
   apiKeys,
   baseUrl,
   embeddingDims,
+  inputType,
 }: {
   provider: string;
   model: string;
@@ -161,6 +163,7 @@ export const buildProviderConfig = ({
   apiKeys?: string[];
   baseUrl?: string;
   embeddingDims?: number;
+  inputType?: string;
 }) => {
   if (!provider) {
     return undefined;
@@ -179,6 +182,12 @@ export const buildProviderConfig = ({
 
   if (embeddingDims && Number.isFinite(embeddingDims)) {
     config.embedding_dims = embeddingDims;
+  }
+
+  // Sent even when empty: omitting the key would leave the stored value in place, so clearing
+  // the select would silently keep `auto`. The server drops an empty value before persisting.
+  if (inputType !== undefined) {
+    config.input_type = inputType.trim();
   }
 
   return { provider, config };

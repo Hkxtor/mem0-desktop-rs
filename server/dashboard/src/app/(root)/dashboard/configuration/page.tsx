@@ -55,6 +55,13 @@ const SYSTEMONE_DEFAULT_MODEL = "gemini-decision-1";
 // Radix Select cannot hold an empty string as a real choice.
 const SYSTEMONE_OFF = "__off__";
 
+// The select shows these labels; the value it sends is the key.
+const INPUT_TYPE_LABEL: Record<string, string> = {
+  auto: "auto：存记忆用 passage，检索用 query",
+  query: "query",
+  passage: "passage",
+};
+
 export default function ConfigurationPage() {
   const { isAdmin } = useAuth();
   const [isSaving, setIsSaving] = useState(false);
@@ -69,6 +76,9 @@ export default function ConfigurationPage() {
   const [embedderApiKey, setEmbedderApiKey] = useState("");
   const [embedderBaseUrl, setEmbedderBaseUrl] = useState("");
   const [embeddingDims, setEmbeddingDims] = useState("");
+  // Asymmetric embedding models (NVIDIA nemotron-3.5, ...) need input_type; most providers
+  // reject the field, so empty means it is never sent.
+  const [embedderInputType, setEmbedderInputType] = useState("");
   const [serverHasEmbedderKey, setServerHasEmbedderKey] = useState(false);
   // SystemOne = the optional classifier that tags memories with categories. Leaving the
   // provider on "Off" keeps classification disabled and stores categories: [].
@@ -140,6 +150,10 @@ export default function ConfigurationPage() {
       config.embedder?.config?.embedding_dims ??
       config.vector_store?.config?.embedding_model_dims;
     setEmbeddingDims((current) => current || (dims ? String(dims) : ""));
+    const inputType = config.embedder?.config?.input_type;
+    if (typeof inputType === "string") {
+      setEmbedderInputType((current) => current || inputType);
+    }
   }, [config]);
 
   // Runtime pool state: which keys exist, which are parked after a 429, which were rejected.
@@ -308,6 +322,7 @@ export default function ConfigurationPage() {
         apiKeys: parseApiKeys(embedderApiKey),
         baseUrl: embedderBaseUrl,
         embeddingDims: embeddingDims ? Number(embeddingDims) : undefined,
+        inputType: embedderInputType,
       });
 
       const newConfig: Record<string, unknown> = {
@@ -562,6 +577,35 @@ export default function ConfigurationPage() {
                 disabled={!isAdmin}
               />
             </div>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">输入类型（input_type）</Label>
+            <Select
+              value={embedderInputType || "none"}
+              onValueChange={(value) =>
+                setEmbedderInputType(value === "none" ? "" : value)
+              }
+              disabled={!isAdmin}
+            >
+              <SelectTrigger data-testid="embedder-input-type">
+                <SelectValue placeholder="不发送">
+                  {INPUT_TYPE_LABEL[embedderInputType] ?? undefined}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">不发送（默认）</SelectItem>
+                <SelectItem value="auto">
+                  auto：存记忆用 passage，检索用 query
+                </SelectItem>
+                <SelectItem value="query">query</SelectItem>
+                <SelectItem value="passage">passage</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-onSurface-default-tertiary">
+              只有非对称模型需要（NVIDIA nemotron-3.5 这类）。OpenAI 等不认识的
+              provider
+              会因此报错，所以默认不发送。开启后旧向量要用同一设置重建，否则检索质量会下降。
+            </p>
           </div>
         </CardContent>
       </Card>
