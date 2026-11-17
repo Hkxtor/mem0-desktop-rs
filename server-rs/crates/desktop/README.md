@@ -121,13 +121,17 @@ curl -s -X POST "http://127.0.0.1:PORT/import" -H "X-API-Key: ..." \
 
 provider 选 `openai`（OpenAI 兼容的 `/v1/embeddings`），Base URL 填 `https://integrate.api.nvidia.com/v1`。实测（2026-11，一个普通 nvapi 密钥）：
 
-| 模型 | 维度 | 需要 `input_type` | 单次耗时（中位） |
+| 模型 | 维度 | 需要 `input_type` | 单次耗时（中位 / p90） |
 |---|---|---|---|
-| `nvidia/nemotron-3.5-embed-1b` | 2048，可裁到 1024 / 512 | 是 | 0.76s |
-| `nvidia/nemotron-3-embed-1b` | 2048（不可裁剪） | 否 | 0.58s |
-| `nvidia/nemotron-3.5-embed-8b` | 4096，可裁到 1024 | 是 | 23.9s |
+| `nvidia/nemotron-3.5-embed-1b` | 128–2048 任意整数（默认 2048） | 是 | 0.81s / 0.88s |
+| `nvidia/nemotron-3-embed-1b` | 只能 2048 | 否 | 0.45s / 0.57s |
+| `nvidia/nemotron-3.5-embed-8b` | 1–4096 任意整数（默认 4096） | 是 | 0.76s / 1.19s |
 
-8B 那个慢到会撞上游 120 秒网关超时（并发几个请求就 504），不建议日常使用；1B 的两个都够快。`nvidia/embed-qa-4`、`nv-embedqa-mistral-7b-v2`、`snowflake/arctic-embed-l` 等旧模型在 `/v1/models` 里列着，但对普通密钥返回 `404 Function … Not found for account`。
+三个都在亚秒级，维度对耗时几乎没有影响（8B 在 1024 / 3072 / 4096 上分别是 0.73 / 0.76 / 0.96s）。8B 并发 8 个 3072 维请求也是一秒左右全部返回。所以选哪个是**质量与体积**的取舍，不是速度问题：3072 维比 1024 维的库大约三倍。
+
+> 一次早期测量里 8B 的中位是 23.9 秒、并发还会撞上游 120 秒网关超时（504）。同一把密钥过一阵复测就全是亚秒级——那是上游冷启动/容量问题，不是模型固有属性。遇到长耗时先重试几次再下结论。
+
+`nvidia/embed-qa-4`、`nv-embedqa-mistral-7b-v2`、`snowflake/arctic-embed-l` 等旧模型在 `/v1/models` 里列着，但对普通密钥返回 `404 Function … Not found for account`。
 
 ## 记忆分类（Categories）
 
