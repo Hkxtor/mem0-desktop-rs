@@ -191,14 +191,40 @@ fn with_key(cfg: &Value, key: &str) -> Value {
 /// status. The `code` separates "wait a moment" (`RATE_001`) from "the keys are broken"
 /// (`KEYS_001`), and the message says which, because an operator reading a 503 needs to know
 /// whether to retry or to open Configuration.
-pub(crate) fn exhausted(section: &str, why: Exhausted, refusals: &[(usize, String)]) -> Mem0Error {
+/// The error an exhausted pool reports.
+///
+/// `tails` are the last three characters of the keys involved, so a message about a pool can be
+/// matched to the keys in the configuration page. Short keys report none and the message simply
+/// omits the parenthesis.
+pub(crate) fn exhausted(
+    section: &str,
+    why: Exhausted,
+    refusals: &[(usize, String)],
+    tails: &[(usize, String)],
+) -> Mem0Error {
     let mut message = format!("{section}: {}", why.message());
-    if matches!(why, Exhausted::AllRevoked) && !refusals.is_empty() {
-        let detail: Vec<String> = refusals
+    let tail_of = |idx: usize| {
+        tails
             .iter()
-            .map(|(idx, reason)| format!("#{} {reason}", idx + 1))
-            .collect();
-        message = format!("{message} — {}", detail.join("; "));
+            .find(|(i, _)| *i == idx)
+            .map(|(_, t)| format!("…{t}"))
+    };
+    match why {
+        Exhausted::AllRevoked if !refusals.is_empty() => {
+            let detail: Vec<String> = refusals
+                .iter()
+                .map(|(idx, reason)| match tail_of(*idx) {
+                    Some(tail) => format!("#{} {tail} {reason}", idx + 1),
+                    None => format!("#{} {reason}", idx + 1),
+                })
+                .collect();
+            message = format!("{message} — {}", detail.join("; "));
+        }
+        Exhausted::AllCooling { .. } if !tails.is_empty() => {
+            let listed: Vec<String> = tails.iter().map(|(_, t)| format!("…{t}")).collect();
+            message = format!("{message} ({})", listed.join(", "));
+        }
+        _ => {}
     }
     Mem0Error::RateLimit {
         code: if matches!(why, Exhausted::AllRevoked) {
@@ -217,7 +243,7 @@ pub(crate) fn exhausted(section: &str, why: Exhausted, refusals: &[(usize, Strin
 /// the pool); every absorbed failure removes its key, so in practice this is reached only by a
 /// pool whose keys were all tried without producing a refusal.
 fn pool_error(section: &'static str, ring: &Keyring, why: Exhausted) -> Mem0Error {
-    exhausted(section, why, &ring.refusals())
+    exhausted(section, why, &ring.refusals(), &ring.cooling_tails())
 }
 
 /// What to do with a failed attempt, given the pool.
@@ -245,6 +271,19 @@ pub(crate) fn absorb(
             None => "error".to_string(),
         };
         ring.note_failure(idx, &reason);
+        // The caller gets the provider's own error untouched, so the log is the only place that
+        // can say which key it was.
+        logging::warn(
+            "keys",
+            "api key refused (single-key pool, no rotation)",
+            serde_json::json!({
+                "section": section,
+                "key_index": idx + 1,
+                "key_tail": ring.tail(idx),
+                "status": err.http_status(),
+                "reason": reason,
+            }),
+        );
         return Next::Return;
     }
     match err.http_status() {
@@ -257,6 +296,7 @@ pub(crate) fn absorb(
                 serde_json::json!({
                     "section": section,
                     "key_index": idx + 1,
+                    "key_tail": ring.tail(idx),
                     "status": 429,
                     "cooldown_s": wait.unwrap_or(crate::keyring::DEFAULT_COOLDOWN).as_secs(),
                     "tried": tried.len() + 1,
@@ -272,6 +312,7 @@ pub(crate) fn absorb(
                 serde_json::json!({
                     "section": section,
                     "key_index": idx + 1,
+                    "key_tail": ring.tail(idx),
                     "status": code,
                 }),
             );
@@ -286,6 +327,7 @@ fn refusal_reason(err: &Mem0Error) -> &'static str {
     match err.http_status() {
         Some(401) => "unauthorized",
         Some(403) => "forbidden",
+        Some(429) => "rate limited",
         _ => "rejected",
     }
 }
@@ -557,19 +599,57 @@ mod tests {
                 wait: Duration::from_secs(47),
             },
             &[],
+            &[],
         );
         assert_eq!(e.code(), Some("RATE_001"));
         assert!(e.to_string().contains("47s"), "{e}");
         assert!(!e.to_string().contains("sk-"), "{e}");
+        assert!(
+            !e.to_string().contains('…'),
+            "nothing to identify, nothing to print: {e}"
+        );
 
         let revoked = exhausted(
             "llm",
             Exhausted::AllRevoked,
             &[(0, "401 unauthorized".into()), (1, "403 forbidden".into())],
+            &[],
         );
         assert_eq!(revoked.code(), Some("KEYS_001"));
         assert!(revoked.to_string().contains("#1 401"), "{revoked}");
         assert!(revoked.to_string().contains("#2 403"), "{revoked}");
+    }
+
+    /// A pool whose keys are long enough to be identified says *which* keys are rate limited:
+    /// "all keys are rate limited" is not actionable when the operator has five of them.
+    #[test]
+    fn a_rate_limited_pool_names_the_keys_by_their_last_three_characters() {
+        let key = |n: char| format!("sk-{}-{}", "x".repeat(40), n);
+        let e = exhausted(
+            "llm",
+            Exhausted::AllCooling {
+                wait: Duration::from_secs(47),
+            },
+            &[],
+            &[(0, "1a2".to_string()), (2, "3b4".to_string())],
+        );
+        let m = e.to_string();
+        assert!(m.contains("…1a2"), "{m}");
+        assert!(m.contains("…3b4"), "{m}");
+        assert!(m.contains("47s"), "{m}");
+
+        // And the whole key never leaks, however much of the tail is shown.
+        let full = key('z');
+        assert!(!m.contains(&full), "{m}");
+        let revoked = exhausted(
+            "llm",
+            Exhausted::AllRevoked,
+            &[(0, "401 unauthorized".into())],
+            &[(0, "1a2".to_string())],
+        );
+        let m = revoked.to_string();
+        assert!(m.contains("#1 …1a2 401 unauthorized"), "{m}");
+        assert!(!m.contains(&full), "{m}");
     }
 
     #[test]

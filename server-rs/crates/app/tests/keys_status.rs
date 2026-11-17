@@ -464,6 +464,36 @@ async fn every_key_rate_limited_answers_503_with_the_wait() {
     );
 }
 
+/// A pool of five keys is useless if the message only says "all keys are rate limited": the
+/// operator has to know which ones to go and look at. The last three characters are enough to
+/// recognise a key and too little to be one.
+#[tokio::test]
+async fn an_exhausted_pool_names_the_keys_by_their_last_three_characters() {
+    let _gate = gate();
+    let a = "sk-proj-0123456789abcdefghijAAA";
+    let b = "sk-proj-0123456789abcdefghijBBB";
+    let (up, base) = start(vec![(a.into(), 429, Some(42)), (b.into(), 429, Some(42))]).await;
+    let app = app();
+    let (code, body) = call(
+        &app.router,
+        "POST",
+        "/configure",
+        Some(embedder_config(&base, &[a, b])),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{body}");
+
+    let (code, body) = raw_add(&app.router).await;
+    assert_eq!(code, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    let detail = body["detail"].as_str().unwrap_or_default();
+    assert!(detail.contains("…AAA"), "{detail}");
+    assert!(detail.contains("…BBB"), "{detail}");
+    // Never more than the tail: the whole key must not be reconstructable from an error.
+    assert!(!detail.contains(a), "{detail}");
+    assert!(!detail.contains(b), "{detail}");
+    assert_eq!(up.seen.lock().unwrap().len(), 2);
+}
+
 #[tokio::test]
 async fn a_section_without_keys_inherits_the_llm_pool() {
     let _gate = gate();

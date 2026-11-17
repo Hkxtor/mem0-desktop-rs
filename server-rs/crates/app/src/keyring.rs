@@ -98,6 +98,22 @@ struct PoolState {
     cursor: usize,
 }
 
+/// How long a key has to be before its last three characters are safe to print.
+///
+/// Every key these providers issue is far longer (OpenAI 50+, Gemini 39, nvapi 70); the bound
+/// exists so a hand-typed short secret never has a third of itself echoed into a log.
+pub const MIN_LEN_FOR_TAIL: usize = 20;
+
+/// The last three characters of `key`, when the key is long enough for that to be a rounding
+/// error rather than a hint.
+pub fn tail_of(key: &str) -> Option<String> {
+    let key = key.trim();
+    if key.chars().count() < MIN_LEN_FOR_TAIL {
+        return None;
+    }
+    Some(key.chars().skip(key.chars().count() - 3).collect())
+}
+
 impl Keyring {
     /// Build a ring over `keys`. Empty keys are dropped; a duplicate is the same quota, so it
     /// is dropped too rather than doubling that key's share of the rotation.
@@ -130,6 +146,28 @@ impl Keyring {
 
     pub fn keys(&self) -> &[String] {
         &self.keys
+    }
+
+    /// The last three characters of a key, for telling one apart in a message.
+    ///
+    /// Enough to recognise "the one ending in a1b" among a handful of keys, and little enough
+    /// that it cannot help anyone reconstruct a key. Keys too short for that trade-off to hold
+    /// (under [`MIN_LEN_FOR_TAIL`]) report nothing: three characters of an eight-character
+    /// secret is a third of it.
+    pub fn tail(&self, idx: usize) -> Option<String> {
+        self.keys.get(idx).and_then(|key| tail_of(key))
+    }
+
+    /// The keys currently parked after a `429`, with their tails, for the "all rate limited"
+    /// message. Indices line up with [`Keyring::keys`].
+    pub fn cooling_tails(&self) -> Vec<(usize, String)> {
+        let st = self.lock();
+        st.keys
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.cooling_until.is_some())
+            .filter_map(|(i, _)| self.tail(i).map(|t| (i, t)))
+            .collect()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -493,6 +531,40 @@ mod tests {
         assert!(Keyring::single("only").is_single());
         assert!(!ring(&["a", "b"]).is_single());
         assert!(ring(&[]).is_single(), "an empty pool cannot rotate either");
+    }
+
+    /// The tail is a fingerprint, not a key: three characters, and only once the key is long
+    /// enough that three of them is a rounding error.
+    #[test]
+    fn a_tail_is_three_characters_and_only_for_long_keys() {
+        let long = "sk-proj-0123456789abcdefghijXYZ";
+        assert_eq!(tail_of(long).as_deref(), Some("XYZ"));
+        // Under the bound nothing is printed at all — three of eleven is a quarter of the key.
+        assert_eq!(tail_of("sk-shortkey"), None);
+        assert_eq!(tail_of(""), None);
+        assert_eq!(tail_of(&"k".repeat(MIN_LEN_FOR_TAIL - 1)), None);
+        assert_eq!(
+            tail_of(&"k".repeat(MIN_LEN_FOR_TAIL))
+                .as_deref()
+                .map(str::len),
+            Some(3)
+        );
+        // Multi-byte keys must not be split mid-character: three *characters*, not three bytes.
+        let unicode = format!("{}{}", "k".repeat(30), "密钥好");
+        assert_eq!(tail_of(&unicode).as_deref(), Some("密钥好"));
+    }
+
+    #[test]
+    fn the_ring_reports_tails_only_for_keys_that_are_cooling() {
+        let a = "sk-proj-0123456789abcdefghijAAA";
+        let b = "sk-proj-0123456789abcdefghijBBB";
+        let r = ring(&[a, b]);
+        assert_eq!(r.tail(0).as_deref(), Some("AAA"));
+        assert_eq!(r.tail(9), None, "out of range is not a panic");
+        r.cool(1, Some(SHORT));
+        assert_eq!(r.cooling_tails(), vec![(1, "BBB".to_string())]);
+        // Never the key itself.
+        assert!(!format!("{:?}", r.cooling_tails()).contains("sk-proj"));
     }
 
     #[test]

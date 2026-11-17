@@ -202,6 +202,7 @@ impl DecisionClient {
                         crate::pooled::SYSTEMONE,
                         why,
                         &ring.refusals(),
+                        &ring.cooling_tails(),
                     ))
                 }
             };

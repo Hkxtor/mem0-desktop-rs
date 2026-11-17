@@ -46,7 +46,11 @@ async fn chat(State(up): State<Upstream>, _body: Json<Value>) -> (StatusCode, St
 async fn embed(Json(body): Json<Value>) -> (StatusCode, String) {
     // One vector per input, like the real endpoint: a batched request that gets a single vector
     // back is a mismatch the client cannot sort out.
-    let n = body["input"].as_array().map(|a| a.len()).unwrap_or(1).max(1);
+    let n = body["input"]
+        .as_array()
+        .map(|a| a.len())
+        .unwrap_or(1)
+        .max(1);
     let data: Vec<Value> = (0..n)
         .map(|i| json!({"embedding": vec![0.1_f32; 10], "index": i}))
         .collect();

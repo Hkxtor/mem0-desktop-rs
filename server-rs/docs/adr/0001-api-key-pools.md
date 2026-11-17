@@ -48,3 +48,9 @@ the request fails at once with the earliest recovery time in the message — unl
 - **A `429` no longer fails the whole request**, so failure counts that gate longer operations
   (batch classification stops after three consecutive failures) count only unrecoverable
   failures. A rotation that succeeds is not a failure.
+- **Errors name the key by its last three characters.** "All keys are rate limited" is not
+  actionable for an operator holding five of them, so the message and the `keys` log line carry
+  the tail (`…a1b`). Three characters of a 40-plus character secret identify a key without
+  helping anyone reconstruct it; keys shorter than 20 characters report nothing, because there
+  three characters is a real hint. The full key still never leaves the process — `/configure`
+  redacts to `[redacted]` and no message has ever contained a whole key.
