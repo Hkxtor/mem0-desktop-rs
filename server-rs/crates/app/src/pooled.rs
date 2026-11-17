@@ -381,6 +381,50 @@ impl Embedder for PooledEmbedder {
     fn dims(&self) -> usize {
         self.dims
     }
+
+    /// Batch through the pool, not one text at a time.
+    ///
+    /// The trait's default would loop [`Embedder::embed`], which for a pooled embedder means one
+    /// HTTP request per text: an add that extracted six memories became six round trips where an
+    /// unpooled embedder makes one. Chunking is the provider's own limit (100 texts, the same
+    /// number `OpenAiEmbedder::embed_batch` uses), and rotation happens per chunk — a chunk that
+    /// cannot be completed fails as a whole, which the pipeline already handles by retrying the
+    /// entries one by one.
+    async fn embed_batch(
+        &self,
+        texts: &[String],
+        action: mem0::MemoryAction,
+    ) -> Result<Vec<Vec<f32>>> {
+        const MAX_BATCH: usize = 100;
+        if texts.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut out: Vec<Vec<f32>> = Vec::with_capacity(texts.len());
+        for chunk in texts.chunks(MAX_BATCH) {
+            let mut tried: Vec<usize> = Vec::new();
+            loop {
+                let idx = match pick_key(&self.ring, &tried).await {
+                    Ok(idx) => idx,
+                    Err(why) => return Err(pool_error(self.section, &self.ring, why)),
+                };
+                match self.clients[idx].embed_batch(chunk, action).await {
+                    Ok(vectors) => {
+                        self.ring.advance(idx);
+                        out.extend(vectors);
+                        break;
+                    }
+                    Err(e) => {
+                        let next = absorb(self.section, &self.ring, idx, &e, &tried);
+                        tried.push(idx);
+                        if next == Next::Return {
+                            return Err(e);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
 }
 
 /// Build the section's LLM, pooled when it has more than one key.
