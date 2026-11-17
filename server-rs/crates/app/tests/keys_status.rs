@@ -92,7 +92,10 @@ async fn embed(
         return (
             StatusCode::OK,
             out,
-            json!({"data": [{"embedding": vec![0.1_f32; 10]}]}).to_string(),
+            // `index` is not optional in the OpenAI response shape; leaving it out made every
+            // successful embedding attempt fail to decode, which no test noticed until one
+            // actually reached a 200 on this path.
+            json!({"data": [{"embedding": vec![0.1_f32; 10], "index": 0}]}).to_string(),
         );
     }
     (
@@ -352,6 +355,41 @@ fn embedder_config(base_url: &str, keys: &[&str]) -> Value {
         }
     });
     cfg
+}
+
+#[tokio::test]
+async fn a_rate_limited_embedder_key_is_parked_and_the_memory_is_still_stored() {
+    let _gate = gate();
+    // The embedder's own happy rotation path: key one is out of quota for 30 s, and the write
+    // is finished by key two. Without this the embedder only had tests for the two ways
+    // rotation ends badly (5xx, everything cooling).
+    let (up, base) = start(vec![
+        ("sk-a".into(), 429, Some(30)),
+        ("sk-b".into(), 200, None),
+        ("sk-c".into(), 200, None),
+    ])
+    .await;
+    let a = app();
+    let (code, body) = call(
+        &a.router,
+        "POST",
+        "/configure",
+        Some(embedder_config(&base, &["sk-a", "sk-b", "sk-c"])),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{body}");
+
+    let (code, body) = raw_add(&a.router).await;
+    assert_eq!(code, StatusCode::OK, "{body}");
+    assert_eq!(body["results"].as_array().unwrap().len(), 1, "{body}");
+
+    // Two attempts inside one request: the refused key, then the next one.
+    let seen = up.seen.lock().unwrap().clone();
+    assert_eq!(seen, ["Bearer sk-a", "Bearer sk-b"], "{seen:?}");
+
+    let st = status(&a.router).await;
+    assert_eq!(st["embedder"]["cooling"], json!(1), "{st}");
+    assert_eq!(st["embedder"]["revoked"], json!(0), "{st}");
 }
 
 #[tokio::test]
