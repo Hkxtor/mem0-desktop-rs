@@ -7,6 +7,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
+import { Sun, Moon, Monitor } from "lucide-react";
+import { useTheme } from "next-themes";
 import {
   Select,
   SelectContent,
@@ -64,6 +66,9 @@ const INPUT_TYPE_LABEL: Record<string, string> = {
 
 export default function ConfigurationPage() {
   const { isAdmin } = useAuth();
+  // Appearance is a display preference, not a model setting: it lives here now that the desktop
+  // app has no profile page.
+  const { theme, setTheme } = useTheme();
   const [isSaving, setIsSaving] = useState(false);
   const [llmProvider, setLlmProvider] = useState("");
   const [llmModel, setLlmModel] = useState("");
@@ -856,6 +861,46 @@ export default function ConfigurationPage() {
               />
             </div>
           ))}
+        </CardContent>
+      </Card>
+
+      <Card className="border-memBorder-secondary bg-surface-default-primary">
+        <CardHeader>
+          <CardTitle className="text-base">外观</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <div className="space-y-1">
+            <Label className="text-xs">主题</Label>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { value: "light", label: "浅色", icon: Sun },
+                { value: "dark", label: "深色", icon: Moon },
+                { value: "system", label: "跟随系统", icon: Monitor },
+              ].map((option) => {
+                const active = theme === option.value;
+                return (
+                  <Button
+                    key={option.value}
+                    type="button"
+                    variant={active ? "default" : "outline"}
+                    className={
+                      active
+                        ? "bg-surface-default-inverted text-onSurface-default-inverted hover:bg-surface-default-inverted/90"
+                        : ""
+                    }
+                    onClick={() => setTheme(option.value)}
+                    data-testid={`theme-${option.value}`}
+                  >
+                    <option.icon className="size-4 mr-2" />
+                    {option.label}
+                  </Button>
+                );
+              })}
+            </div>
+            <p className="text-xs text-onSurface-default-tertiary">
+              仅影响此浏览器，不需要保存。
+            </p>
+          </div>
         </CardContent>
       </Card>
     </div>

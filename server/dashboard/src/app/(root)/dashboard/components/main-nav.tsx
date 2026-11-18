@@ -9,7 +9,6 @@ import {
   GalleryVerticalEnd,
   KeyRound,
   ScrollText,
-  Settings,
   Tags,
   Users,
   Wrench,
@@ -165,12 +164,6 @@ export function MainNav({
                     url: "/dashboard/configuration",
                     icon: Wrench,
                     active: pathname === "/dashboard/configuration",
-                  },
-                  {
-                    title: "设置",
-                    url: "/dashboard/settings",
-                    icon: Settings,
-                    active: pathname === "/dashboard/settings",
                   },
                   {
                     // Operational, not analytical: it belongs with the other pages you

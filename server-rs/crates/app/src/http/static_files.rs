@@ -28,7 +28,6 @@ pub const PAGE_ROUTES: &[&str] = &[
     "dashboard/logs",
     "dashboard/memories",
     "dashboard/requests",
-    "dashboard/settings",
     "404",
 ];
 

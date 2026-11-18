@@ -113,9 +113,9 @@ export default function NavWrapper() {
                     asChild
                     className="typo-body-sm text-onSurface-default-primary hover:bg-surface-default-tertiary-hover focus:bg-surface-default-tertiary-hover cursor-pointer"
                   >
-                    <Link href="/dashboard/settings">
+                    <Link href="/dashboard/configuration">
                       <Settings className="size-4 mr-2" />
-                      设置
+                      配置
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator className="bg-memBorder-primary" />
