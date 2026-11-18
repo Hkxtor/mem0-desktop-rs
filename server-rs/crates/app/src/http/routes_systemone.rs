@@ -404,47 +404,27 @@ pub async fn category_counts(
     let configured = state.systemone.read().await.is_some()
         || crate::categories::is_configured(&super::routes_config::load_persisted_config(&state));
     let mut counts: serde_json::Map<String, Value> = serde_json::Map::new();
-    if let Some(mem) = super::routes_config::memory_or_restore(&state).await {
-        // ALL_MEMORIES_LIMIT-style bound; desktop scale is <=10k rows.
-        let all = mem
-            .list_all_include_expired(10_000)
-            .await
-            .map_err(ApiError::from)?;
-        if let Some(results) = all.get("results").and_then(|r| r.as_array()) {
-            for item in results {
-                if let Some(cats) = item.get("categories").and_then(|c| c.as_array()) {
-                    for c in cats {
-                        if let Some(name) = c.as_str() {
-                            if crate::categories::PRESET_CATEGORIES.contains(&name) {
-                                let entry =
-                                    counts.entry(name.to_string()).or_insert_with(|| json!(0));
-                                if let Some(n) = entry.as_u64() {
-                                    counts.insert(name.to_string(), json!(n + 1));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    // How many memories carry no category right now. Counted over the visible set only:
-    // an expired memory is hidden from every list and search, so tagging it would spend
-    // tokens on data nobody can see.
     let mut unclassified = 0u64;
     if let Some(mem) = super::routes_config::memory_or_restore(&state).await {
-        if let Ok(all) = mem.list_all(10_000).await {
-            if let Some(results) = all.get("results").and_then(|r| r.as_array()) {
-                unclassified = results
-                    .iter()
-                    .filter(|item| {
-                        item.get("categories")
-                            .and_then(|c| c.as_array())
-                            .map(|a| a.is_empty())
-                            .unwrap_or(true)
-                    })
-                    .count() as u64;
+        // Ask SQLite, not a listing. The previous version listed the whole table twice — once
+        // including expired rows for the histogram, once excluding them for the unclassified
+        // count — so producing a dozen numbers cost ten thousand rows and their vectors, and a
+        // tenth of the library was silently dropped whenever it outgrew the limit.
+        // Counted in SQL by sqlite-vec, which is the only backend this app builds. Other backends
+        // fall back to the trait's default, which lists; their numbers are bounded by that
+        // listing's limit, so they are a lower bound rather than an exact total.
+        match mem.vector_store().category_counts().await {
+            Ok((by_category, uncat)) => {
+                for (name, n) in by_category {
+                    // Only preset categories are displayed; anything else is a leftover from a
+                    // hand-edited payload.
+                    if crate::categories::PRESET_CATEGORIES.contains(&name.as_str()) {
+                        counts.insert(name, json!(n));
+                    }
+                }
+                unclassified = uncat;
             }
+            Err(e) => return Err(ApiError::from(e)),
         }
     }
     let last_error = state

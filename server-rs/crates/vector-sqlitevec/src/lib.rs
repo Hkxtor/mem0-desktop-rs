@@ -6,6 +6,7 @@
 //! predicates, so filtered search is exact — there is no ANN index that could silently
 //! drop matches the way DuckDB's HNSW does without prefilter pushdown.
 
+pub mod expiry;
 pub mod filters_sql;
 pub mod fts;
 pub mod store;

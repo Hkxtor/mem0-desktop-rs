@@ -123,10 +123,14 @@ pub async fn retry_failed(
     let mut failed = 0usize;
     let mut consecutive = 0usize;
     let mut stopped_reason: Option<String> = None;
+    // One read of "what is already there" per scope, not per row: a batch of twenty retries used
+    // to list the scope twenty times, and the entries a retry stored during the batch are added
+    // to the cache as they land.
+    let mut known: std::collections::HashMap<Scope, Vec<String>> = std::collections::HashMap::new();
 
     for id in ids {
         retried += 1;
-        match retry_one(&state, id).await {
+        match retry_one(&state, id, &mut known).await {
             Ok(outcome) if outcome.resolved => {
                 stored += outcome.stored;
                 consecutive = 0;
@@ -191,7 +195,11 @@ struct Retried {
 /// A row is deleted only when the retry actually stored something. If a partial success left
 /// leftovers, the re-run has already rewritten the same row (same dedup key) with what is
 /// still missing.
-async fn retry_one(state: &Arc<AppState>, id: i64) -> ApiResult<Retried> {
+async fn retry_one(
+    state: &Arc<AppState>,
+    id: i64,
+    known: &mut std::collections::HashMap<Scope, Vec<String>>,
+) -> ApiResult<Retried> {
     let row = {
         let store = state
             .store
@@ -282,9 +290,16 @@ async fn retry_one(state: &Arc<AppState>, id: i64) -> ApiResult<Retried> {
     } else {
         let mut stored = 0usize;
         let mut leftovers: Vec<String> = Vec::new();
-        // Read once: an entry whose text is already a memory is a resolved retry, not a
+        // Read once per scope: an entry whose text is already a memory is a resolved retry, not a
         // failure, and `add` reports both cases as an empty result.
-        let mut present = stored_texts(state, &scope).await;
+        if !known.contains_key(&scope) {
+            let texts = stored_texts(state, &scope).await;
+            known.insert(scope.clone(), texts);
+        }
+        // Filled on the line above, so this cannot be absent; no unwrap on a request path.
+        let Some(present) = known.get_mut(&scope) else {
+            return Err(ApiError::internal("retry scope cache was not filled"));
+        };
         for text in &items {
             if present.iter().any(|t| t == text) {
                 // The text became a memory between the failure and now (the caller resent it,
@@ -399,6 +414,9 @@ async fn retry_one(state: &Arc<AppState>, id: i64) -> ApiResult<Retried> {
         resolved: true,
     })
 }
+
+/// Which scope a retry belongs to. Hashable so a batch can cache one read per scope.
+type Scope = (Option<String>, Option<String>, Option<String>);
 
 /// The texts already stored for a scope, for telling "already there" from "lost".
 async fn stored_texts(

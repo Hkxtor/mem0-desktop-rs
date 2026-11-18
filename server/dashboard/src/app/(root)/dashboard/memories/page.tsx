@@ -200,7 +200,16 @@ export default function MemoriesPage() {
 
   // Re-fetch when the URL category filter changes (the query hook only refetches
   // on demand, so drive it from here).
+  //
+  // Skip the first render: `useApiQuery` already fetches on mount, and running this too made
+  // every visit to the page issue the same 1000-row request twice — and write two rows into the
+  // request log.
+  const firstCategoryRender = useRef(true);
   useEffect(() => {
+    if (firstCategoryRender.current) {
+      firstCategoryRender.current = false;
+      return;
+    }
     setPage(0);
     void refetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps

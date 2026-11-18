@@ -563,6 +563,58 @@ async fn the_configure_response_redacts_every_key_but_keeps_the_count() {
     assert!(!stored.to_string().contains("sk-a"), "{stored}");
 }
 
+/// Saving an unrelated setting must not hand a cooling key back to the rotation.
+///
+/// The old `set_config` rebuilt the whole `Memory` on every save, and rebuilding reinstalls the
+/// key pools — so an operator who changed a threshold while a key was parked got that key back
+/// immediately, and the next request was rate limited again.
+#[tokio::test]
+async fn saving_an_unrelated_setting_keeps_the_cooldown() {
+    let _gate = gate();
+    let (up, base) = start(vec![
+        ("sk-a".into(), 429, Some(60)),
+        ("sk-b".into(), 200, None),
+    ])
+    .await;
+    let a = app();
+    let (code, body) = call(
+        &a.router,
+        "POST",
+        "/configure",
+        Some(config(&base, &["sk-a", "sk-b"])),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{body}");
+
+    let (code, _) = add(&a.router).await;
+    assert_eq!(code, StatusCode::OK);
+    let st = status(&a.router).await;
+    assert_eq!(st["llm"]["cooling"], json!(1), "{st}");
+
+    // Save something that has nothing to do with the models: the extraction instruction.
+    let mut update = config(&base, &["sk-a", "sk-b"]);
+    update["custom_prompt"] = json!("remember only the facts about food");
+    let (code, body) = call(&a.router, "POST", "/configure", Some(update)).await;
+    assert_eq!(code, StatusCode::OK, "{body}");
+
+    let st = status(&a.router).await;
+    assert_eq!(
+        st["llm"]["cooling"],
+        json!(1),
+        "an unrelated save must not resurrect a cooling key: {st}"
+    );
+
+    // And the next request still goes to the healthy key.
+    up.seen.lock().unwrap().clear();
+    let (code, _) = add(&a.router).await;
+    assert_eq!(code, StatusCode::OK);
+    let seen = up.seen.lock().unwrap().clone();
+    assert!(
+        seen.iter().all(|a| a.ends_with("sk-b")),
+        "the cooling key must stay parked: {seen:?}"
+    );
+}
+
 #[tokio::test]
 async fn a_single_key_still_behaves_like_a_single_key() {
     let _gate = gate();

@@ -290,40 +290,77 @@ pub async fn set_config(
         "systemone": next.get("systemone").and_then(|v| v.get("provider")).cloned(),
     });
 
+    // Only rebuild what the update can actually change. `Memory` is built from the llm /
+    // embedder / vector_store / history sections, so saving an unrelated setting (a threshold,
+    // the history limit) used to cost a new pair of sqlite connections and one HTTP client per
+    // key — and it silently reset the key pools, bringing back keys that were cooling after a
+    // 429 or revoked after a 401.
+    // Exactly the keys `MemoryConfig` deserializes from — a save that touches one of these has
+    // to produce a new Memory, and one that does not must not pay for it. `history_db_path` is a
+    // top-level key, not a `history` section, and `custom_instructions` changes what the
+    // extractor asks for, so both belong here even though neither has a UI control.
+    let memory_changed = [
+        "llm",
+        "embedder",
+        "vector_store",
+        "reranker",
+        "history_db_path",
+        "custom_instructions",
+        "use_input_language",
+    ]
+    .iter()
+    .any(|section| previous.get(*section) != next.get(*section));
+    let classifier_changed = previous.get("systemone") != next.get("systemone");
+
     // Build the new runtime BEFORE touching the old one: a failed build must leave the
     // working config intact (server_state.py::update_config semantics).
-    let new_memory = crate::memory_bridge::build_memory(&next, &state.data_dir).map_err(|e| {
-        crate::logging::error(
-            "config",
-            "configuration rejected",
-            serde_json::json!({"error": e.to_string(), "providers": providers}),
-        );
-        ApiError::bad_request(format!("Configuration rejected: {e}"))
-    })?;
+    let new_memory = if memory_changed {
+        Some(
+            crate::memory_bridge::build_memory(&next, &state.data_dir).map_err(|e| {
+                crate::logging::error(
+                    "config",
+                    "configuration rejected",
+                    serde_json::json!({"error": e.to_string(), "providers": providers}),
+                );
+                ApiError::bad_request(format!("Configuration rejected: {e}"))
+            })?,
+        )
+    } else {
+        None
+    };
 
-    {
-        let mut slot = state.memory.write().await;
-        *slot = Some(Arc::new(new_memory));
-    }
     // The category classifier follows the systemone section of the new config. A
     // broken systemone build rejects the whole update, same as a broken llm build —
     // a half-applied config would classify with a stale model or not at all.
-    let classifier = crate::categories::build_classifier(&next).map_err(|e| {
-        crate::logging::error(
-            "config",
-            "systemone configuration rejected",
-            serde_json::json!({"error": e.to_string()}),
-        );
-        ApiError::bad_request(format!("Configuration rejected: {e}"))
-    })?;
-    {
+    //
+    // Everything that can fail is built and written BEFORE any slot is swapped. The old order
+    // installed the new Memory first and then could still return 400 for the classifier or for
+    // the write to disk, which left the process running a configuration that `config.json` did
+    // not have: `/configure` GET disagreed with the actual behaviour until a restart.
+    let classifier = if classifier_changed {
+        Some(crate::categories::build_classifier(&next).map_err(|e| {
+            crate::logging::error(
+                "config",
+                "systemone configuration rejected",
+                serde_json::json!({"error": e.to_string()}),
+            );
+            ApiError::bad_request(format!("Configuration rejected: {e}"))
+        })?)
+    } else {
+        None
+    };
+    persist_config(&state, &next)?;
+    if let Some(new_memory) = new_memory {
+        let mut slot = state.memory.write().await;
+        *slot = Some(Arc::new(new_memory));
+    }
+    if let Some(classifier) = classifier {
         let mut slot = state.systemone.write().await;
         *slot = classifier.map(Arc::new);
+        // A new configuration invalidates the previous failure: without this the Categories
+        // page would keep showing an error from a model that is no longer configured.
+        crate::http::routes_systemone::note_classify_result(&state, None);
     }
-    // A new configuration invalidates the previous failure: without this the Categories
-    // page would keep showing an error from a model that is no longer configured.
-    crate::http::routes_systemone::note_classify_result(&state, None);
-    persist_config(&state, &next)?;
     crate::logging::info(
         "config",
         "configuration applied",

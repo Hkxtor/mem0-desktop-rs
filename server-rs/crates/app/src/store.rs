@@ -720,17 +720,52 @@ impl StateStore {
         messages: &[(Option<String>, String)],
     ) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
-        self.conn.execute(
+        // One transaction per add, not one per memory: replacing the inputs of N memories used to
+        // be N separate commits, each with its own fsync, and a crash between them left some
+        // memories pointing at the old input and some at the new one.
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
             "DELETE FROM memory_inputs WHERE memory_id = ?1",
             params![memory_id],
         )?;
-        let mut stmt = self.conn.prepare(
-            "INSERT INTO memory_inputs(memory_id, seq, role, content, created_at)
-             VALUES(?1,?2,?3,?4,?5)",
-        )?;
-        for (seq, (role, content)) in messages.iter().enumerate() {
-            stmt.execute(params![memory_id, seq as i64, role, content, now])?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO memory_inputs(memory_id, seq, role, content, created_at)
+                 VALUES(?1,?2,?3,?4,?5)",
+            )?;
+            for (seq, (role, content)) in messages.iter().enumerate() {
+                stmt.execute(params![memory_id, seq as i64, role, content, now])?;
+            }
         }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Record the source messages for several memories in one transaction.
+    ///
+    /// An add that produced N memories has one set of inputs, shared by all of them; writing them
+    /// one memory at a time paid N commits for a single logical write.
+    pub fn record_memory_inputs_for_many(
+        &self,
+        memory_ids: &[String],
+        messages: &[(Option<String>, String)],
+    ) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let tx = self.conn.unchecked_transaction()?;
+        {
+            let mut delete = tx.prepare("DELETE FROM memory_inputs WHERE memory_id = ?1")?;
+            let mut insert = tx.prepare(
+                "INSERT INTO memory_inputs(memory_id, seq, role, content, created_at)
+                 VALUES(?1,?2,?3,?4,?5)",
+            )?;
+            for memory_id in memory_ids {
+                delete.execute(params![memory_id])?;
+                for (seq, (role, content)) in messages.iter().enumerate() {
+                    insert.execute(params![memory_id, seq as i64, role, content, now])?;
+                }
+            }
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -926,6 +961,39 @@ mod tests {
             (Some(true), None, None),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn recording_inputs_for_many_is_one_atomic_write() {
+        let s = StateStore::in_memory().unwrap();
+        let ids = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let messages = vec![
+            (Some("user".to_string()), "first".to_string()),
+            (Some("assistant".to_string()), "second".to_string()),
+        ];
+        s.record_memory_inputs_for_many(&ids, &messages).unwrap();
+        for id in &ids {
+            let rows = s.list_memory_inputs(id).unwrap();
+            assert_eq!(rows.len(), 2, "{id} should carry both messages");
+            assert_eq!(rows[0]["content"], "first");
+            assert_eq!(rows[1]["role"], "assistant");
+        }
+
+        // Re-recording replaces rather than appends, and does it for every id.
+        s.record_memory_inputs_for_many(&ids, &[(Some("user".to_string()), "new".to_string())])
+            .unwrap();
+        for id in &ids {
+            let rows = s.list_memory_inputs(id).unwrap();
+            assert_eq!(
+                rows.len(),
+                1,
+                "{id} should have been replaced, not appended"
+            );
+            assert_eq!(rows[0]["content"], "new");
+        }
+
+        // An empty id list is a no-op, not an error.
+        s.record_memory_inputs_for_many(&[], &messages).unwrap();
     }
 
     #[test]

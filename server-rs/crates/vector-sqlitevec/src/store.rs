@@ -486,6 +486,10 @@ impl VectorStore for SqliteVecStore {
         Ok(out)
     }
 
+    async fn category_counts(&self) -> Result<(std::collections::BTreeMap<String, u64>, u64)> {
+        self.category_counts_sql()
+    }
+
     async fn delete_col(&self) -> Result<()> {
         let conn = self.conn.lock().map_err(poisoned)?;
         conn.execute(&format!("DELETE FROM {}", self.table), [])
@@ -513,6 +517,58 @@ impl VectorStore for SqliteVecStore {
 }
 
 impl SqliteVecStore {
+    /// Count memories by category, without reading any of them out.
+    ///
+    /// The Categories page needs a histogram, and the old implementation listed the whole table
+    /// (vectors included) to count in Rust — ten thousand rows to produce a dozen numbers. SQLite
+    /// does the grouping, and only the payload column is touched.
+    ///
+    /// The SQL implementation of [`VectorStore::category_counts`].
+    fn category_counts_sql(&self) -> Result<(std::collections::BTreeMap<String, u64>, u64)> {
+        let conn = self.conn.lock().map_err(poisoned)?;
+        // `json_each` turns the payload's array into one row per category. A payload without the
+        // key contributes no rows, which is exactly what the histogram wants.
+        let mut stmt = conn
+            .prepare(&format!(
+                "SELECT je.value AS category, COUNT(*) AS n                  FROM {table}, json_each(json_extract(payload, '$.categories')) je                  WHERE json_valid(payload) GROUP BY category",
+                table = self.table
+            ))
+            .map_err(|e| Mem0Error::vector_store(format!("prepare category counts: {e}")))?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+            .map_err(|e| Mem0Error::vector_store(format!("category counts: {e}")))?;
+        let mut counts = std::collections::BTreeMap::new();
+        for row in rows {
+            let (name, n) =
+                row.map_err(|e| Mem0Error::vector_store(format!("read category count: {e}")))?;
+            counts.insert(name, n as u64);
+        }
+
+        // Unclassified = no categories key, or an empty array. Counted separately because those
+        // rows never appear in the grouped query above.
+        let mut unclassified = 0u64;
+        let mut stmt = conn
+            .prepare(&format!(
+                "SELECT payload FROM {table}                  WHERE json_valid(payload)                  AND (json_extract(payload, '$.categories') IS NULL                       OR json_array_length(json_extract(payload, '$.categories')) = 0)",
+                table = self.table
+            ))
+            .map_err(|e| Mem0Error::vector_store(format!("prepare unclassified: {e}")))?;
+        let rows = stmt
+            .query_map([], |r| r.get::<_, String>(0))
+            .map_err(|e| Mem0Error::vector_store(format!("unclassified: {e}")))?;
+        for row in rows {
+            let payload =
+                row.map_err(|e| Mem0Error::vector_store(format!("read unclassified: {e}")))?;
+            // Same rule as `Memory::list_all`: expired rows are invisible, so they are not
+            // something the operator would spend a classification on.
+            if crate::expiry::payload_is_expired(&payload) {
+                continue;
+            }
+            unclassified += 1;
+        }
+        Ok((counts, unclassified))
+    }
+
     /// Full exact scan: no KNN, just filter + ORDER BY distance over all rows.
     /// Used as the fallback when the KNN page came up short after outer filtering,
     /// guaranteeing search is never approximate.

@@ -332,3 +332,47 @@ async fn get_memories_categories_query_param_filters_and_counts_endpoint_aggrega
     assert_eq!(counts["counts"]["technology"], json!(1), "{counts}");
     assert!(counts["counts"].get("music").is_none(), "{counts}");
 }
+
+/// The aggregate must cover the whole library, not the page the old implementation listed.
+///
+/// `category_counts` used to call `list_all_include_expired(10_000)`, so a library past that
+/// limit silently undercounted — and read every vector to do it.
+#[tokio::test]
+async fn the_counts_are_aggregates_not_a_listing() {
+    let a = app();
+    // The classifier deliberately answers nothing, so every stored memory is unclassified and
+    // the number must equal the number of rows — the old implementation counted a listing, and
+    // a listing has a limit.
+    configure_with_systemone(&a.router, r#"[]"#).await;
+
+    for i in 0..25 {
+        add_memory(&a.router, &format!("fact {i}"), "alice").await;
+    }
+    let (status, counts) = call(&a.router, "GET", "/systemone/counts", None).await;
+    assert_eq!(status, StatusCode::OK, "{counts}");
+    assert_eq!(counts["unclassified"], json!(25), "{counts}");
+    assert_eq!(counts["counts"], json!({}), "{counts}");
+
+    // An expired memory is invisible everywhere else, so it must not be counted as something
+    // worth classifying. The histogram, on the other hand, counts every row.
+    let (status, body) = call(
+        &a.router,
+        "POST",
+        "/memories",
+        Some(json!({
+            "messages": [{"role": "user", "content": "expired"}],
+            "user_id": "alice",
+            "infer": false,
+            "metadata": {"expiration_date": "2000-01-01"},
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, counts) = call(&a.router, "GET", "/systemone/counts", None).await;
+    assert_eq!(status, StatusCode::OK, "{counts}");
+    assert_eq!(
+        counts["unclassified"],
+        json!(25),
+        "an expired row is not something to classify: {counts}"
+    );
+}

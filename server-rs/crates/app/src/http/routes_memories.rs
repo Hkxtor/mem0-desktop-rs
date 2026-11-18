@@ -274,10 +274,9 @@ pub(super) async fn add_memory_inner(
         .collect();
     if !inputs.is_empty() {
         if let Ok(store) = state.store.lock() {
-            for r in &results {
-                if let Err(e) = store.record_memory_inputs(&r.id, &inputs) {
-                    eprintln!("recording inputs failed for {}: {e}", r.id);
-                }
+            let ids: Vec<String> = results.iter().map(|r| r.id.clone()).collect();
+            if let Err(e) = store.record_memory_inputs_for_many(&ids, &inputs) {
+                eprintln!("recording inputs failed: {e}");
             }
         }
     }
@@ -285,30 +284,55 @@ pub(super) async fn add_memory_inner(
     // Auto-categorize each new memory when a systemone model is configured. This is
     // best-effort: a classification failure yields categories=[] and never fails the
     // add itself (consensus rule 5).
+    //
+    // Classify concurrently, and index by position rather than by text: two extracted memories
+    // can be identical, and matching on the text would hand both of them the same categories.
+    // `Memory::add` already batches the embeddings and the insert, and a serial loop here gave
+    // all of that back — an add that extracted six memories paid six back-to-back model calls.
+    // The bound keeps a large extraction from becoming a burst the provider answers with 429s,
+    // and the response keeps its original order.
+    const CLASSIFY_CONCURRENCY: usize = 4;
     let classifier = super::classifier_or_restore(&state).await;
-    let mut out: Vec<Value> = Vec::with_capacity(results.len());
-    for r in &results {
-        let categories = match &classifier {
-            Some(clf) => {
-                match super::routes_systemone::classify_recorded(&state, clf, &r.memory).await {
-                    Ok(cats) => {
-                        if let Err(e) =
-                            super::routes_systemone::write_categories(&mem, &r.id, &cats).await
-                        {
-                            eprintln!("classify write-back failed for {}: {e}", r.id);
-                        }
-                        cats
-                    }
-                    Err(e) => {
-                        // Best-effort by design: the memory is stored untagged. The error is
-                        // recorded (not just logged) so the UI can show why categories are empty.
-                        eprintln!("classify failed for {}: {e}", r.id);
-                        Vec::new()
-                    }
-                }
+    let mut classified: Vec<Vec<String>> = vec![Vec::new(); results.len()];
+    if let Some(clf) = classifier {
+        let mut tasks = tokio::task::JoinSet::new();
+        let mut next = 0usize;
+        while next < results.len() || !tasks.is_empty() {
+            while next < results.len() && tasks.len() < CLASSIFY_CONCURRENCY {
+                let index = next;
+                let state = state.clone();
+                let clf = clf.clone();
+                let text = results[index].memory.clone();
+                tasks.spawn(async move {
+                    let cats = super::routes_systemone::classify_recorded(&state, &clf, &text)
+                        .await
+                        .unwrap_or_else(|e| {
+                            // Best-effort by design: the memory is stored untagged. The error is
+                            // recorded (not just logged) so the UI can show why categories are
+                            // empty.
+                            eprintln!("classify failed: {e}");
+                            Vec::new()
+                        });
+                    (index, cats)
+                });
+                next += 1;
             }
-            None => Vec::new(),
-        };
+            // A panicked classification task loses its own categories, never the add.
+            if let Some(Ok((index, cats))) = tasks.join_next().await {
+                classified[index] = cats;
+            }
+        }
+    }
+    let mut out: Vec<Value> = Vec::with_capacity(results.len());
+    for (i, r) in results.iter().enumerate() {
+        let categories = std::mem::take(&mut classified[i]);
+        if !categories.is_empty() {
+            if let Err(e) =
+                super::routes_systemone::write_categories(&mem, &r.id, &categories).await
+            {
+                eprintln!("classify write-back failed for {}: {e}", r.id);
+            }
+        }
         // match Python's add() result shape: id/memory/event plus the actor fields
         out.push(json!({
             "id": r.id,
