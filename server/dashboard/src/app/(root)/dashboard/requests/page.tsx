@@ -25,6 +25,9 @@ type RequestLog = {
   statusCode: number;
   latencyMs: number;
   reason: string | null;
+  /** What kind of upstream failure caused the empty result. `reason` says which step failed;
+   *  this says what to do about it. Null when there was no upstream failure at all. */
+  errorKind: string | null;
   /** The stashed add behind this row, when its input was kept for a retry. */
   failedAddId: number | null;
 };
@@ -48,6 +51,31 @@ const REASON_HINTS: Record<string, string> = {
   embed_failed:
     "记忆取到了，但有几条拿不到向量，因此没有存下。原文已暂存，可在「记忆」页重试。",
   add_failed: "存储环节出错，什么都没写进去。原文已暂存，可在「记忆」页重试。",
+};
+
+/// Why the provider refused, and what the operator can do about it. Keyed by `error_kind`, which
+/// the server derives from the upstream HTTP status — a quota that will pass, a key that never
+/// will, a model name that is a typo, and an outage that is not this side's problem all read as
+/// "模型调用失败" without this.
+const KIND_LABELS: Record<string, string> = {
+  rate_limited: "上游限速",
+  auth_failed: "密钥被拒",
+  model_not_found: "模型不存在",
+  upstream_error: "上游故障",
+  network_error: "连不上上游",
+};
+
+const KIND_HINTS: Record<string, string> = {
+  rate_limited:
+    "上游把这个密钥的配额用完了。等一会儿再试，或在「配置」页给这一段多填几把密钥——填了多把时，限速会自动换下一把重试。",
+  auth_failed:
+    "上游拒绝了这个密钥：可能填错、已被吊销，或没有这个模型的权限。到「配置」页检查这一段的 API 密钥。",
+  model_not_found:
+    "上游没有这个模型，通常是模型名拼错或该账号没有开通。到「配置」页核对模型名与 Base URL。",
+  upstream_error:
+    "上游服务自己出错了，本地配置没有问题。稍后重试即可；原文已暂存，可在「记忆」页重试。",
+  network_error:
+    "没能连上上游：检查网络、代理和 Base URL 是否可达。原文已暂存，可在「记忆」页重试。",
 };
 
 const REQUEST_LOG_LIMIT = 200;
@@ -97,6 +125,7 @@ const normalizeLog = (entry: ApiRequestLog): RequestLog => {
     statusCode: entry.status_code,
     latencyMs: entry.latency_ms,
     reason: entry.reason ?? null,
+    errorKind: entry.error_kind ?? null,
     failedAddId: entry.failed_add_id ?? null,
   };
 };
@@ -158,7 +187,7 @@ export default function RequestsPage() {
     {
       key: "results" as keyof RequestLog,
       label: "结果数",
-      width: 150,
+      width: 300,
       render: (value: number | null, row: RequestLog) => {
         const label = row.reason ? REASON_LABELS[row.reason] : undefined;
         return (
@@ -173,9 +202,20 @@ export default function RequestsPage() {
             {row.reason && (
               <span
                 title={REASON_HINTS[row.reason] ?? row.reason}
-                className="cursor-help rounded border border-memBorder-primary bg-surface-default-secondary px-1.5 py-0.5 text-[11px] text-onSurface-default-secondary"
+                className="cursor-help whitespace-nowrap rounded border border-memBorder-primary bg-surface-default-secondary px-1.5 py-0.5 text-[11px] text-onSurface-default-secondary"
               >
                 {label ?? row.reason}
+              </span>
+            )}
+            {/* Beside the reason, not instead of it: "the model call failed" and "because the
+                quota ran out" answer different questions. */}
+            {row.errorKind && (
+              <span
+                title={KIND_HINTS[row.errorKind] ?? row.errorKind}
+                data-testid={`kind-${row.id}`}
+                className="cursor-help whitespace-nowrap rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-300"
+              >
+                {KIND_LABELS[row.errorKind] ?? row.errorKind}
               </span>
             )}
             {row.failedAddId !== null && (
@@ -183,7 +223,7 @@ export default function RequestsPage() {
                 href="/dashboard/memories?failed=1"
                 data-testid={`stashed-${row.id}`}
                 title="原文已暂存，可在「记忆」页重试"
-                className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700 hover:underline dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-300"
+                className="whitespace-nowrap rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700 hover:underline dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-300"
               >
                 已暂存
               </Link>

@@ -290,10 +290,20 @@ pub async fn delete_entity(
 pub struct ExportQuery {
     #[serde(default = "default_format")]
     pub format: String,
+    /// Where to start. Absent means the beginning, which is what the old single-shot read did.
+    #[serde(default)]
+    pub offset: Option<usize>,
+    /// How many rows to return. Absent keeps the historical cap, so an existing caller that
+    /// does not know about paging keeps getting the same 1000-row response.
+    #[serde(default)]
+    pub limit: Option<usize>,
 }
 fn default_format() -> String {
     "json".into()
 }
+
+/// The historical export cap, `ALL_MEMORIES_LIMIT` in server/memory_api.py.
+const EXPORT_PAGE_LIMIT: usize = 1000;
 
 pub async fn export(
     State(state): State<Arc<AppState>>,
@@ -306,22 +316,35 @@ pub async fn export(
         .await
         .clone()
         .ok_or_else(|| ApiError::unavailable("runtime_not_configured"))?;
+    let offset = q.offset.unwrap_or(0);
+    // Clamped, not rejected: a caller asking for everything in one go gets a page it can make
+    // sense of, and `truncated` tells it that there is more.
+    let limit = q.limit.unwrap_or(EXPORT_PAGE_LIMIT).min(EXPORT_PAGE_LIMIT);
+
     // Python exports `list_all_memories()["results"]` — the very rows the Memories page
     // shows. Reading the raw payload instead lost `id` and `memory`, and an export that
     // cannot be imported back is not an export.
-    let memories: Vec<Value> = mem
+    //
+    // Paged rather than capped: a library past the cap used to export short with nothing in the
+    // response saying so, so "export, reset, re-import" — the only way to change embedding
+    // dimensions — silently dropped everything past the first thousand rows. `total_in_store`
+    // and `truncated` are what make that visible; `total` keeps its old meaning of "rows in this
+    // response" so existing readers do not change behaviour.
+    let (memories, total_in_store) = mem
         // include expired: Python's export reads the store directly and never filters them
-        .list_all_include_expired(1000) // ALL_MEMORIES_LIMIT in server/memory_api.py
+        .list_all_page(offset, limit)
         .await
-        .map_err(ApiError::from)?
-        .get("results")
-        .and_then(|r| r.as_array())
-        .cloned()
-        .unwrap_or_default();
+        .map_err(ApiError::from)?;
+    let returned = memories.len();
+    let truncated = offset.saturating_add(returned) < total_in_store as usize;
+
     match q.format.as_str() {
         "json" | "pydantic" => Ok(Json(json!({
             "exported_at": chrono::Utc::now().to_rfc3339(),
-            "total": memories.len(),
+            "total": returned,
+            "total_in_store": total_in_store,
+            "offset": offset,
+            "truncated": truncated,
             "memories": memories,
         }))),
         "csv" => {

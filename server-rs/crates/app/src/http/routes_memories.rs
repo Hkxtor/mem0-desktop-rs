@@ -236,6 +236,11 @@ pub(super) async fn add_memory_inner(
             // and would fail identically on a retry; everything else may pass once whatever
             // is broken — a key, a quota, a disk — is fixed, and the input is already gone
             // from the caller's side.
+            //
+            // The upstream status has to be read before the error is converted: `ApiError`
+            // carries the status *this* server answers with, which for a provider failure is a
+            // 502 we chose, not the 429 or 401 the provider said.
+            let kind = crate::error_kind::classify(e.http_status());
             let api = ApiError::from(e);
             let mut outcome_now = ops::Outcome::default();
             if keep_on_failure && api.status.is_server_error() {
@@ -245,6 +250,7 @@ pub(super) async fn add_memory_inner(
                     REASON_ADD_FAILED
                 };
                 outcome_now.reason = Some(reason.to_string());
+                outcome_now.error_kind = kind.map(|k| k.to_string());
                 outcome_now.failed_add_id =
                     stash_failed_add(&state, &body, reason, &[], Some(api.detail.clone()));
             }
@@ -398,6 +404,10 @@ fn explain_add(
     let mut outcome = ops::Outcome {
         reason: Some(reason.to_string()),
         failed_add_id: None,
+        // Only an LLM error has an upstream status to classify; a parse failure is our side of
+        // the exchange and an embedding failure that stored nothing has no response to read.
+        error_kind: crate::error_kind::classify(first.and_then(|d| d.status))
+            .map(|k| k.to_string()),
     };
     if reason == REASON_NO_MEMORIES {
         return outcome;
@@ -699,7 +709,7 @@ async fn get_all_memories_inner(
         // page even though the memories exist.
         let mem = memory(&state).await?;
         // Python's unfiltered listing defaults to ALL_MEMORIES_LIMIT (1000).
-        let top_k = q.top_k.unwrap_or(1000) as usize;
+        let top_k = q.top_k.unwrap_or(1000);
         let cats = parse_categories_param(&q.categories);
         let all = if cats.is_empty() {
             mem.list_all(top_k).await.map_err(ApiError::from)?

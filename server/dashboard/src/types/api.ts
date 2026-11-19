@@ -70,6 +70,9 @@ export interface ApiRequestLog {
   /** Why a successful operation produced nothing: `no_memories`, `provider_error`,
    *  `unparsed_answer`, `embed_failed`, `add_failed`. Null for the ordinary case. */
   reason?: string | null;
+  /** Why the upstream call failed, as a code: `rate_limited`, `auth_failed`,
+   *  `model_not_found`, `upstream_error`, `network_error`. Null when nothing failed upstream. */
+  error_kind?: string | null;
   /** The stashed add behind this row, when the input was kept for a retry. */
   failed_add_id?: number | null;
 }

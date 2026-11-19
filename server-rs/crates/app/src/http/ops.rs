@@ -48,7 +48,7 @@ fn persist(
 ) {
     // Logging must never turn a successful memory call into an error: this is bookkeeping.
     if let Ok(store) = state.store.lock() {
-        if let Err(e) = store.log_memory_operation(
+        if let Err(e) = store.log_memory_operation_with_kind(
             operation,
             detail,
             results,
@@ -56,6 +56,7 @@ fn persist(
             latency_ms,
             outcome.and_then(|o| o.reason.as_deref()),
             outcome.and_then(|o| o.failed_add_id),
+            outcome.and_then(|o| o.error_kind.as_deref()),
         ) {
             eprintln!("failed to record memory operation: {e}");
         }
@@ -65,11 +66,13 @@ fn persist(
 /// What an operation wants the Requests page to say about it.
 ///
 /// `reason` explains a zero the operator cannot otherwise decode; `failed_add_id` points at
-/// the stash holding the input, so the row can offer a retry.
+/// the stash holding the input, so the row can offer a retry; `error_kind` says what kind of
+/// upstream failure caused it, which is what turns "模型调用失败" into advice.
 #[derive(Debug, Clone, Default)]
 pub struct Outcome {
     pub reason: Option<String>,
     pub failed_add_id: Option<i64>,
+    pub error_kind: Option<String>,
 }
 
 /// Run a handler body and record the outcome either way.

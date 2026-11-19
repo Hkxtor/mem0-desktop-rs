@@ -10,6 +10,7 @@ pub mod config;
 pub mod decision;
 pub mod desktop_settings;
 pub mod embed_log;
+pub mod error_kind;
 pub mod http;
 pub mod keyring;
 pub mod lock;

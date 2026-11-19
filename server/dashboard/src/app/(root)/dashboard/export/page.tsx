@@ -8,97 +8,58 @@ import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/use-toast";
 import { getErrorMessage } from "@/lib/error-message";
 import { api } from "@/utils/api";
-import { EXPORT_ENDPOINTS, MEMORY_ENDPOINTS } from "@/utils/api-endpoints";
+import { EXPORT_ENDPOINTS } from "@/utils/api-endpoints";
 import { useApiQuery } from "@/hooks/use-api-query";
-import { Memory } from "@/types/api";
-
-type ExportFormat = "json" | "csv" | "pydantic";
-
-const FORMATS: {
-  value: ExportFormat;
-  label: string;
-  extension: string;
-  description: string;
-}[] = [
-  {
-    value: "json",
-    label: "JSON",
-    extension: "json",
-    description: "按存储原样导出全部字段，可用于导入到别处或喂给脚本。",
-  },
-  {
-    value: "csv",
-    label: "CSV",
-    extension: "csv",
-    description:
-      "每条记忆一行。metadata 会压进单独一列 JSON，保证表头固定不变。",
-  },
-  {
-    value: "pydantic",
-    label: "Pydantic",
-    extension: "py",
-    description:
-      "可直接运行的 Python 模块：包含模型定义，数据以 EXPORTED 常量内嵌。",
-  },
-];
-
-// Keep in sync with ALL_MEMORIES_LIMIT in server/main.py — the export endpoint caps at the same
-// number, so this is the count the file will actually contain.
-const MEMORY_FETCH_LIMIT = 1000;
-
-const filenameFrom = (disposition: string | undefined, fallback: string) => {
-  const match = /filename="?([^";]+)"?/.exec(disposition || "");
-  return match?.[1] || fallback;
-};
+import {
+  backupFilename,
+  downloadJson,
+  fetchAllMemories,
+} from "@/utils/export-all";
 
 export default function ExportPage() {
-  const [format, setFormat] = useState<ExportFormat>("json");
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
+  // The count used to come from `/memories?top_k=1000`, so on a larger library the page showed
+  // the cap rather than the collection. `/export` now reports the real total.
   const {
-    data: memories = [],
+    data: totalInStore = 0,
     isLoading,
     refetch,
-  } = useApiQuery<Memory[]>(
+  } = useApiQuery<number>(
     async () => {
-      const res = await api.get(MEMORY_ENDPOINTS.BASE, {
-        params: { top_k: MEMORY_FETCH_LIMIT },
+      const res = await api.get(EXPORT_ENDPOINTS.EXPORT, {
+        params: { format: "json", limit: 0 },
       });
-      const raw = res.data?.results ?? res.data ?? [];
-      return Array.isArray(raw) ? raw : [];
+      const total = res.data?.total_in_store;
+      return typeof total === "number" ? total : 0;
     },
-    { errorToast: "无法统计记忆数量", initialData: [] },
+    { errorToast: "无法统计记忆数量", initialData: 0 },
   );
 
-  const selected =
-    FORMATS.find((entry) => entry.value === format) ?? FORMATS[0];
-  const hasMemories = memories.length > 0;
+  const hasMemories = totalInStore > 0;
 
   const handleExport = async () => {
     setIsExporting(true);
 
     try {
-      const res = await api.get(EXPORT_ENDPOINTS.EXPORT, {
-        params: { format },
-        responseType: "blob",
-      });
-
-      const url = URL.createObjectURL(res.data as Blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = filenameFrom(
-        res.headers["content-disposition"],
-        `mem0-memories.${selected.extension}`,
+      // Every page, not just the first: a capped export is a silent partial backup, and this
+      // file is what people restore from after a reset.
+      const { memories, totalInStore: total } = await fetchAllMemories();
+      downloadJson(
+        { exported_at: new Date().toISOString(), total, memories },
+        backupFilename(),
       );
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      // Revoking immediately can cancel the download in some browsers.
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
 
-      toast({ title: "导出文件已下载", variant: "success" });
+      toast({
+        title: `已导出 ${memories.length.toLocaleString()} 条记忆`,
+        description:
+          memories.length === total
+            ? undefined
+            : `库中共 ${total.toLocaleString()} 条，本次全部包含在内。`,
+        variant: "success",
+      });
     } catch (error) {
       toast({
         title: "导出失败",
@@ -156,33 +117,14 @@ export default function ExportPage() {
       <div className="space-y-1">
         <h1 className="text-xl font-semibold font-fustat">导出</h1>
         <p className="text-sm text-onSurface-default-tertiary">
-          下载本机保存的全部记忆。数据不会离开这台机器——导出内容与「记忆」页列出的是同一份数据。
+          下载本机保存的全部记忆，JSON
+          格式。数据不会离开这台机器——导出内容与「记忆」页列出的是同一份数据。
+        </p>
+        <p className="text-sm text-onSurface-default-tertiary">
+          导出会读取全部记忆，不受列表分页影响；只有 JSON
+          能原样导入回来，所以它是唯一提供的格式。
         </p>
       </div>
-
-      <Card className="border-memBorder-primary">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm">格式</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-2">
-            {FORMATS.map((entry) => (
-              <Button
-                key={entry.value}
-                variant={entry.value === format ? "default" : "outline"}
-                size="sm"
-                onClick={() => setFormat(entry.value)}
-                disabled={isExporting}
-              >
-                {entry.label}
-              </Button>
-            ))}
-          </div>
-          <p className="text-sm text-onSurface-default-secondary">
-            {selected.description}
-          </p>
-        </CardContent>
-      </Card>
 
       <Card className="border-memBorder-primary">
         <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
@@ -193,7 +135,7 @@ export default function ExportPage() {
             <p className="text-sm">
               {isLoading
                 ? "正在统计记忆数量…"
-                : `${memories.length.toLocaleString()} 条记忆`}
+                : `${totalInStore.toLocaleString()} 条记忆`}
             </p>
           </div>
           <Button
@@ -201,7 +143,7 @@ export default function ExportPage() {
             disabled={isExporting || isLoading || !hasMemories}
           >
             <Download className="size-4" />
-            {isExporting ? "正在准备…" : `导出为 ${selected.label}`}
+            {isExporting ? "正在准备…" : "导出全部记忆"}
           </Button>
         </CardContent>
       </Card>

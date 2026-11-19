@@ -72,6 +72,9 @@ fn migrate(conn: &Connection) -> Result<()> {
     add("memory_operations", "reason", "TEXT")?;
     // The stashed add behind an operation that stored nothing but kept its input.
     add("memory_operations", "failed_add_id", "INTEGER")?;
+    // Why the upstream call failed, as a code the dashboard can label. `reason` says which step
+    // produced nothing; this says what to do about it.
+    add("memory_operations", "error_kind", "TEXT")?;
     Ok(())
 }
 
@@ -511,7 +514,7 @@ impl StateStore {
     /// Record one memory operation. `result_count` is how many memories the
     /// operation produced or touched, when that number exists.
     ///
-    /// The last two arguments are optional annotations that always travel together — why the
+    /// The trailing arguments are optional annotations that always travel together — why the
     /// result was empty, and which stashed add it points at — so they stay separate rather
     /// than becoming a one-use struct.
     #[allow(clippy::too_many_arguments)]
@@ -525,10 +528,39 @@ impl StateStore {
         reason: Option<&str>,
         failed_add_id: Option<i64>,
     ) -> Result<()> {
+        self.log_memory_operation_with_kind(
+            operation,
+            detail,
+            result_count,
+            status,
+            latency_ms,
+            reason,
+            failed_add_id,
+            None,
+        )
+    }
+
+    /// [`Self::log_memory_operation`], plus what kind of upstream failure caused the row.
+    ///
+    /// A separate entry point rather than a seventh-then-eighth positional argument: the kind is
+    /// only known on the failure paths that had a provider response to read, and a caller that
+    /// has nothing to say about it should not have to spell out `None`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn log_memory_operation_with_kind(
+        &self,
+        operation: &str,
+        detail: &str,
+        result_count: Option<i64>,
+        status: i64,
+        latency_ms: f64,
+        reason: Option<&str>,
+        failed_add_id: Option<i64>,
+        error_kind: Option<&str>,
+    ) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
         self.conn.execute(
-            "INSERT INTO memory_operations(operation, detail, result_count, status_code, latency_ms, created_at, reason, failed_add_id)
-             VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+            "INSERT INTO memory_operations(operation, detail, result_count, status_code, latency_ms, created_at, reason, failed_add_id, error_kind)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
             params![
                 operation,
                 detail,
@@ -537,7 +569,8 @@ impl StateStore {
                 latency_ms,
                 now,
                 reason,
-                failed_add_id
+                failed_add_id,
+                error_kind
             ],
         )?;
         Ok(())
@@ -693,7 +726,7 @@ impl StateStore {
     pub fn list_memory_operations(&self, limit: i64) -> Result<Vec<Value>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, operation, detail, result_count, status_code, latency_ms, created_at,
-                    reason, failed_add_id
+                    reason, failed_add_id, error_kind
              FROM memory_operations WHERE operation <> 'LIST' ORDER BY id DESC LIMIT ?1",
         )?;
         let rows = stmt.query_map(params![limit], |r| {
@@ -707,6 +740,7 @@ impl StateStore {
                 "created_at": r.get::<_, String>(6)?,
                 "reason": r.get::<_, Option<String>>(7)?,
                 "failed_add_id": r.get::<_, Option<i64>>(8)?,
+                "error_kind": r.get::<_, Option<String>>(9)?,
             }))
         })?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)

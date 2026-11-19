@@ -38,6 +38,7 @@ import {
   readBaseUrl,
 } from "@/utils/self-hosted-config";
 import { useAuth } from "@/hooks/use-auth";
+import { ResetMemoriesCard } from "@/components/self-hosted/reset-memories-card";
 import { useApiQuery } from "@/hooks/use-api-query";
 
 type BundledProviders = {
@@ -903,6 +904,8 @@ export default function ConfigurationPage() {
           </div>
         </CardContent>
       </Card>
+
+      <ResetMemoriesCard />
     </div>
   );
 }

@@ -490,6 +490,15 @@ impl VectorStore for SqliteVecStore {
         self.category_counts_sql()
     }
 
+    async fn list_page(
+        &self,
+        filters: &JsonMap,
+        offset: usize,
+        limit: usize,
+    ) -> Result<(Vec<SearchHit>, u64)> {
+        self.list_page_sql(filters, offset, limit)
+    }
+
     async fn delete_col(&self) -> Result<()> {
         let conn = self.conn.lock().map_err(poisoned)?;
         conn.execute(&format!("DELETE FROM {}", self.table), [])
@@ -517,6 +526,85 @@ impl VectorStore for SqliteVecStore {
 }
 
 impl SqliteVecStore {
+    /// One page of a collection-wide listing, ordered by id so pages cannot overlap.
+    ///
+    /// Export walks the collection a page at a time. The plain listing has no `ORDER BY`, so
+    /// paging over it would repeat and drop rows the moment SQLite chose a different scan order
+    /// between two calls; `memory_id` is a UUID primary key and therefore stable across calls.
+    /// The total comes from a separate `COUNT(*)` so a caller can tell "the whole collection"
+    /// from "the first page of more".
+    ///
+    /// The SQL implementation of [`VectorStore::list_page`].
+    fn list_page_sql(
+        &self,
+        filters: &JsonMap,
+        offset: usize,
+        limit: usize,
+    ) -> Result<(Vec<SearchHit>, u64)> {
+        let conn = self.conn.lock().map_err(poisoned)?;
+        let compiled = compile_filters_v2(filters)?;
+        let where_sql = {
+            let mut w = compiled.knn_where.clone();
+            if !compiled.outer_where.is_empty() {
+                if !w.is_empty() {
+                    w.push_str(" AND ");
+                }
+                w.push_str(&compiled.outer_where);
+            }
+            w
+        };
+        let where_clause = if where_sql.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {where_sql}")
+        };
+
+        // The count uses the same filters, so "total" means the same thing as the page.
+        let count_sql = format!("SELECT COUNT(*) FROM {} {where_clause}", self.table);
+        let mut count_stmt = conn
+            .prepare(&count_sql)
+            .map_err(|e| Mem0Error::vector_store(format!("prepare list_page count: {e}")))?;
+        let count_binds: Vec<Box<dyn rusqlite::types::ToSql>> = compiled
+            .bind_values
+            .iter()
+            .map(|v| Box::new(v.clone()) as Box<dyn rusqlite::types::ToSql>)
+            .collect();
+        let total: i64 = count_stmt
+            .query_row(
+                rusqlite::params_from_iter(count_binds.iter().map(|b| b.as_ref())),
+                |r| r.get(0),
+            )
+            .map_err(|e| Mem0Error::vector_store(format!("list_page count: {e}")))?;
+
+        let sql = format!(
+            "SELECT memory_id, payload FROM {} {where_clause} ORDER BY memory_id LIMIT ? OFFSET ?",
+            self.table
+        );
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| Mem0Error::vector_store(format!("prepare list_page: {e}")))?;
+        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        for v in &compiled.bind_values {
+            params.push(Box::new(v.clone()));
+        }
+        params.push(Box::new(limit as i64));
+        params.push(Box::new(offset as i64));
+        let rows = stmt
+            .query_map(
+                rusqlite::params_from_iter(params.iter().map(|b| b.as_ref())),
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .map_err(|e| Mem0Error::vector_store(format!("list_page: {e}")))?;
+
+        let mut out = Vec::new();
+        for row in rows {
+            let (id, payload) =
+                row.map_err(|e| Mem0Error::vector_store(format!("list_page row: {e}")))?;
+            out.push(row_to_hit_raw(id, 0.0, payload)?);
+        }
+        Ok((out, total as u64))
+    }
+
     /// Count memories by category, without reading any of them out.
     ///
     /// The Categories page needs a histogram, and the old implementation listed the whole table
@@ -631,5 +719,123 @@ impl SqliteVecStore {
             hits.push(row_to_hit(id, dist, payload)?);
         }
         Ok(hits)
+    }
+}
+
+#[cfg(test)]
+mod list_page_tests {
+    use super::*;
+
+    fn record(n: usize) -> VectorRecord {
+        let mut payload = JsonMap::new();
+        payload.insert("data".into(), serde_json::json!(format!("memory {n}")));
+        VectorRecord {
+            id: format!("id-{n:04}"),
+            vector: vec![0.1; 4],
+            payload,
+        }
+    }
+
+    fn build_store(n: usize) -> (tempfile::TempDir, SqliteVecStore) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::build(dir.path(), "mem0", 4).unwrap();
+        // Insert in descending order so insertion order is the opposite of the page order: a
+        // page that leaned on insertion order would come back reversed.
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let mut records: Vec<VectorRecord> = (0..n).map(record).collect();
+                records.reverse();
+                store.insert(records).await.unwrap();
+            });
+        (dir, store)
+    }
+
+    fn page(
+        rt: &tokio::runtime::Runtime,
+        store: &SqliteVecStore,
+        offset: usize,
+        limit: usize,
+    ) -> (Vec<String>, u64) {
+        rt.block_on(async {
+            let (hits, total) = store
+                .list_page(&JsonMap::new(), offset, limit)
+                .await
+                .unwrap();
+            (hits.into_iter().map(|h| h.id).collect(), total)
+        })
+    }
+
+    #[test]
+    fn pages_cover_the_collection_exactly_once() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let (_dir, store) = build_store(250);
+
+        // Pin the order itself, not just the coverage: rows were inserted in descending id
+        // order, so a page that followed insertion order would come back reversed. Without an
+        // explicit ORDER BY this assertion is what fails — a small table on one connection
+        // happens to scan rowids in a fixed order, so coverage alone would still pass.
+        let (first, _) = page(&rt, &store, 0, 3);
+        assert_eq!(
+            first,
+            vec!["id-0000", "id-0001", "id-0002"],
+            "pages must be id-ordered"
+        );
+
+        let mut seen = Vec::new();
+        let mut offset = 0;
+        loop {
+            let (ids, total) = page(&rt, &store, offset, 100);
+            assert_eq!(total, 250, "total is the whole collection, not the page");
+            if ids.is_empty() {
+                break;
+            }
+            offset += ids.len();
+            seen.extend(ids);
+        }
+        assert_eq!(seen.len(), 250, "no row dropped");
+        let mut unique = seen.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), 250, "no row repeated");
+    }
+
+    #[test]
+    fn a_row_inserted_mid_walk_does_not_shift_the_pages_already_read() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let (_dir, store) = build_store(10);
+        let (first, _) = page(&rt, &store, 0, 4);
+        // Ids sort after the whole first page, so the walk continues without re-reading.
+        rt.block_on(async { store.insert(vec![record(9_999)]).await.unwrap() });
+        let (second, total) = page(&rt, &store, first.len(), 4);
+        assert_eq!(total, 11, "the new row is counted");
+        for id in &second {
+            assert!(!first.contains(id), "page two repeated {id} from page one");
+        }
+
+        // And the new row is reachable at the end rather than duplicating one already read.
+        let (last, _) = page(&rt, &store, 8, 10);
+        assert!(last.contains(&"id-9999".to_string()), "{last:?}");
+    }
+
+    #[test]
+    fn an_offset_past_the_end_is_empty_and_an_empty_store_reports_zero() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let (_dir, store) = build_store(3);
+        let (ids, total) = page(&rt, &store, 50, 10);
+        assert!(ids.is_empty());
+        assert_eq!(total, 3);
+
+        let (_dir, empty) = build_store(0);
+        let (ids, total) = page(&rt, &empty, 0, 10);
+        assert!(ids.is_empty());
+        assert_eq!(total, 0);
     }
 }

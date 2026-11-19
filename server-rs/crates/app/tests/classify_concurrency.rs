@@ -5,9 +5,12 @@
 //! deliberately stalls, so a serial implementation cannot pass by accident.
 
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::body::Body;
+use axum::extract::State;
 use axum::http::{HeaderMap, Request, StatusCode};
 use axum::routing::post;
 use axum::{Json, Router};
@@ -45,9 +48,40 @@ async fn embed(Json(body): Json<Value>) -> Json<Value> {
     Json(json!({"data": data}))
 }
 
+/// How many classification requests are being answered right now, and the most that ever were.
+///
+/// The wall clock alone is a load-sensitive way to say "this is concurrent": on a busy machine
+/// (or with cargo running several test binaries at once) a correct implementation can miss a
+/// generous deadline, and a serial one can still pass when the box is idle and fast. Counting
+/// in-flight requests says it directly and cannot flake.
+#[derive(Default)]
+struct InFlight {
+    now: AtomicUsize,
+    peak: AtomicUsize,
+}
+
+impl InFlight {
+    fn enter(&self) {
+        let now = self.now.fetch_add(1, Ordering::SeqCst) + 1;
+        self.peak.fetch_max(now, Ordering::SeqCst);
+    }
+    fn leave(&self) {
+        self.now.fetch_sub(1, Ordering::SeqCst);
+    }
+    fn peak(&self) -> usize {
+        self.peak.load(Ordering::SeqCst)
+    }
+}
+
 /// The Gemini decision protocol: one request per criterion, stalled on purpose.
-async fn decisions(_headers: HeaderMap, Json(body): Json<Value>) -> Json<Value> {
+async fn decisions(
+    State(inflight): State<Arc<InFlight>>,
+    _headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    inflight.enter();
     tokio::time::sleep(CLASSIFY_STALL).await;
+    inflight.leave();
     // `answers` is a map keyed by category name, not an array — one entry per question asked.
     let mut answers = serde_json::Map::new();
     for name in ["technology", "food", "hobbies", "professional_details"] {
@@ -60,17 +94,19 @@ async fn decisions(_headers: HeaderMap, Json(body): Json<Value>) -> Json<Value> 
     Json(json!({"answers": Value::Object(answers)}))
 }
 
-async fn start() -> String {
+async fn start() -> (String, Arc<InFlight>) {
+    let inflight = Arc::new(InFlight::default());
     let app = Router::new()
         .route("/v1/chat/completions", post(llm))
         .route("/v1/embeddings", post(embed))
-        .route("/v1beta/decisions", post(decisions));
+        .route("/v1beta/decisions", post(decisions))
+        .with_state(inflight.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr: SocketAddr = listener.local_addr().unwrap();
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
-    format!("http://{addr}")
+    (format!("http://{addr}"), inflight)
 }
 
 struct App {
@@ -107,7 +143,7 @@ async fn call(app: &Router, method: &str, uri: &str, body: Option<Value>) -> (St
 
 #[tokio::test]
 async fn an_add_classifies_its_memories_concurrently() {
-    let base = start().await;
+    let (base, inflight) = start().await;
     let app = app();
     let (status, body) = call(
         &app.router,
@@ -160,22 +196,27 @@ async fn an_add_classifies_its_memories_concurrently() {
         );
     }
 
-    // Serial would be 6 × 400ms of pure stall = 2400ms, plus the extraction and the embeddings.
-    // With a concurrency of four it is two waves = 800ms. The ceiling is deliberately loose so a
-    // busy CI box does not turn a speed assertion into a flake — the stall is generous for the
-    // same reason — but tight enough that serial cannot sneak under it.
-    let serial = CLASSIFY_STALL * EXTRACTED as u32;
+    // The direct measure: more than one classification was in flight at the same time. One is
+    // what a `for` loop produces, and it is exact — no deadline, no clock.
+    let peak = inflight.peak();
     assert!(
-        wall < serial.mul_f32(0.6),
-        "wall {wall:?} is not better than serial {serial:?}: classification is still one at a time"
+        peak > 1,
+        "only {peak} classification(s) ever ran at once out of {EXTRACTED}: still one at a time"
     );
-    println!("wall={wall:?} for {EXTRACTED} classifications, serial would be {serial:?}");
+    // Not the whole batch at once either — that would hammer the provider. The cap is four.
+    assert!(
+        peak <= 4,
+        "peak concurrency {peak} exceeds the intended cap of 4"
+    );
+    // Wall clock is reported, not asserted: it is the number the operator cares about, and
+    // asserting on it only makes the test fail on a loaded machine.
+    println!("wall={wall:?}, peak in flight={peak}, for {EXTRACTED} classifications");
 }
 
 /// The response order must survive concurrency: two identical texts are two different rows.
 #[tokio::test]
 async fn categories_land_on_the_row_they_belong_to() {
-    let base = start().await;
+    let (base, _inflight) = start().await;
     let app = app();
     let (status, _) = call(
         &app.router,
