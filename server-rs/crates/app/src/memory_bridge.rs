@@ -61,9 +61,12 @@ pub fn build_memory(config_json: &Value, data_dir: &Path) -> Result<Memory> {
     )
     .map_err(|e| wrap_build("embedder", &cfg.embedder.provider, e))?;
     // Wrap so an entry that could not be embedded is not lost silently: `add` drops it and
-    // returns a shorter result list, which the retry queue needs to see (`embed_log`).
-    let embedder: Box<dyn mem0::Embedder> =
-        Box::new(crate::embed_log::RecordingEmbedder::new(embedder));
+    // returns a shorter result list, which the retry queue needs to see (`embed_log`). The
+    // timing wrapper goes outside it so the Requests page can say how long the embedder took;
+    // it delegates `embed_batch` rather than letting the trait default split the batch.
+    let embedder: Box<dyn mem0::Embedder> = Box::new(crate::stage_timing::TimingEmbedder::new(
+        Box::new(crate::embed_log::RecordingEmbedder::new(embedder)),
+    ));
     let embedder_dims = embedder.dims();
 
     // Mirror the Python server: embedder dims are the single source of truth and are
@@ -85,6 +88,9 @@ pub fn build_memory(config_json: &Value, data_dir: &Path) -> Result<Memory> {
         false,
     )
     .map_err(|e| wrap_build("llm", &cfg.llm.provider, e))?;
+    // Outside the pool wrapper, so a call that rotated through two keys is one wait rather than
+    // two: the operator waited once.
+    let llm: Box<dyn mem0::Llm> = Box::new(crate::stage_timing::TimingLlm::new(llm));
 
     let store = vector_sqlitevec::build(data_dir, &collection, dims)
         .map_err(|e| Mem0Error::configuration(format!("vector store: {e}")))?;

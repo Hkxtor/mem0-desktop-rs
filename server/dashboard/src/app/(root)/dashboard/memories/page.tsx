@@ -198,6 +198,16 @@ export default function MemoriesPage() {
     if (searchParams.get("failed") === "1") setFailedOpen(true);
   }, [searchParams]);
 
+  // Arriving from a Requests row's result detail, which named this exact memory. Opening it is
+  // the whole point of the link: landing on the list and leaving the operator to find the entry
+  // again would be no better than not linking at all.
+  const memoryParam = searchParams.get("memory") ?? "";
+  useEffect(() => {
+    if (!memoryParam) return;
+    const hit = memories.find((m) => m.id === memoryParam);
+    if (hit) setSelectedMemory(hit);
+  }, [memoryParam, memories]);
+
   // Re-fetch when the URL category filter changes (the query hook only refetches
   // on demand, so drive it from here).
   //

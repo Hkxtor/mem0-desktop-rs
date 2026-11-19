@@ -17,6 +17,7 @@ pub mod lock;
 pub mod logging;
 pub mod memory_bridge;
 pub mod pooled;
+pub mod stage_timing;
 pub mod store;
 pub mod store_auth;
 

@@ -75,6 +75,35 @@ export interface ApiRequestLog {
   error_kind?: string | null;
   /** The stashed add behind this row, when the input was kept for a retry. */
   failed_add_id?: number | null;
+  /** What the operation stored or found, abbreviated, for the row's expand. Null when the
+   *  operation has no per-item detail (`IMPORT`, `RESET`) or predates the column. */
+  result_summary?: RequestResultSummary | null;
+  /** Where the time went. Null for the paths that never call a model (reads, deletes) and for
+   *  operations that ran outside a timed scope. */
+  stages?: RequestStages | null;
+}
+
+/** One entry of a request row's abbreviated result. */
+export interface RequestResultItem {
+  id?: string;
+  memory?: string;
+  /** Present for searches only. */
+  score?: number;
+}
+
+export interface RequestResultSummary {
+  items: RequestResultItem[];
+  /** How many there were in total; `items` is capped well below this. */
+  total: number;
+  truncated: boolean;
+}
+
+/** Milliseconds per stage of one operation. */
+export interface RequestStages {
+  llm_ms: number;
+  embed_ms: number;
+  classify_ms: number;
+  other_ms: number;
 }
 
 /** One ADD that stored nothing and kept its input, so it can be retried. */

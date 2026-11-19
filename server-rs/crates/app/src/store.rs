@@ -75,7 +75,40 @@ fn migrate(conn: &Connection) -> Result<()> {
     // Why the upstream call failed, as a code the dashboard can label. `reason` says which step
     // produced nothing; this says what to do about it.
     add("memory_operations", "error_kind", "TEXT")?;
+    // What the operation actually stored or found, abbreviated, so the Requests page can show
+    // more than a count when a row is opened: `{"items": [...], "total": n, "truncated": bool}`.
+    // NULL when the operation has no per-item detail worth keeping (`IMPORT`, `RESET`).
+    add("memory_operations", "result_summary", "TEXT")?;
+    // Where the time went, as JSON (`llm_ms` / `embed_ms` / `classify_ms` / `other_ms`). NULL
+    // for the paths that do not run inside a timed scope, e.g. the failed-add retry loop.
+    add("memory_operations", "stages", "TEXT")?;
     Ok(())
+}
+
+/// The optional annotations on a `memory_operations` row.
+///
+/// Every field is something only some request paths know: `reason` and `error_kind` come from
+/// the failure paths that had a provider answer to read, `failed_add_id` from the ones that kept
+/// their input, `result_summary` and `stages` from the operations the Requests page can expand.
+/// Grouping them keeps a caller that knows none of it to `OpExtras::default()`.
+#[derive(Debug, Clone, Default)]
+pub struct OpExtras<'a> {
+    pub reason: Option<&'a str>,
+    pub failed_add_id: Option<i64>,
+    pub error_kind: Option<&'a str>,
+    /// JSON object, already serialized — see `http::ops::summarize`.
+    pub result_summary: Option<&'a str>,
+    /// JSON object, already serialized — see `stage_timing::measure`.
+    pub stages: Option<&'a str>,
+}
+
+/// A text column that holds JSON, parsed for the caller.
+///
+/// Absent stays `null` rather than becoming an empty array or object: the dashboard tells "this
+/// operation has no detail" (IMPORT) from "this row is old enough to predate the column".
+fn json_column(raw: Option<String>) -> Value {
+    raw.and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or(Value::Null)
 }
 
 /// The columns every failed-add read selects, so the mapper below matches them by name.
@@ -534,18 +567,20 @@ impl StateStore {
             result_count,
             status,
             latency_ms,
-            reason,
-            failed_add_id,
-            None,
+            &OpExtras {
+                reason,
+                failed_add_id,
+                ..OpExtras::default()
+            },
         )
     }
 
-    /// [`Self::log_memory_operation`], plus what kind of upstream failure caused the row.
+    /// [`Self::log_memory_operation`], plus what kind of upstream failure caused the row and
+    /// what the operation stored or where its time went.
     ///
-    /// A separate entry point rather than a seventh-then-eighth positional argument: the kind is
-    /// only known on the failure paths that had a provider response to read, and a caller that
-    /// has nothing to say about it should not have to spell out `None`.
-    #[allow(clippy::too_many_arguments)]
+    /// The extras travel in a struct rather than as more positional arguments: at five of them
+    /// a positional list is a guessing game, and most callers have nothing to say about any of
+    /// them (`OpExtras::default()`).
     pub fn log_memory_operation_with_kind(
         &self,
         operation: &str,
@@ -553,14 +588,12 @@ impl StateStore {
         result_count: Option<i64>,
         status: i64,
         latency_ms: f64,
-        reason: Option<&str>,
-        failed_add_id: Option<i64>,
-        error_kind: Option<&str>,
+        extras: &OpExtras<'_>,
     ) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
         self.conn.execute(
-            "INSERT INTO memory_operations(operation, detail, result_count, status_code, latency_ms, created_at, reason, failed_add_id, error_kind)
-             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+            "INSERT INTO memory_operations(operation, detail, result_count, status_code, latency_ms, created_at, reason, failed_add_id, error_kind, result_summary, stages)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
             params![
                 operation,
                 detail,
@@ -568,9 +601,11 @@ impl StateStore {
                 status,
                 latency_ms,
                 now,
-                reason,
-                failed_add_id,
-                error_kind
+                extras.reason,
+                extras.failed_add_id,
+                extras.error_kind,
+                extras.result_summary,
+                extras.stages
             ],
         )?;
         Ok(())
@@ -726,7 +761,7 @@ impl StateStore {
     pub fn list_memory_operations(&self, limit: i64) -> Result<Vec<Value>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, operation, detail, result_count, status_code, latency_ms, created_at,
-                    reason, failed_add_id, error_kind
+                    reason, failed_add_id, error_kind, result_summary, stages
              FROM memory_operations WHERE operation <> 'LIST' ORDER BY id DESC LIMIT ?1",
         )?;
         let rows = stmt.query_map(params![limit], |r| {
@@ -741,6 +776,8 @@ impl StateStore {
                 "reason": r.get::<_, Option<String>>(7)?,
                 "failed_add_id": r.get::<_, Option<i64>>(8)?,
                 "error_kind": r.get::<_, Option<String>>(9)?,
+                "result_summary": json_column(r.get::<_, Option<String>>(10)?),
+                "stages": json_column(r.get::<_, Option<String>>(11)?),
             }))
         })?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)

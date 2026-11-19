@@ -14,7 +14,7 @@ import { EmptyState } from "@/components/self-hosted/empty-state";
 import { api } from "@/utils/api";
 import { REQUEST_ENDPOINTS } from "@/utils/api-endpoints";
 import { useApiQuery } from "@/hooks/use-api-query";
-import { ApiRequestLog } from "@/types/api";
+import { ApiRequestLog, RequestStages } from "@/types/api";
 
 type RequestLog = {
   id: string;
@@ -30,6 +30,24 @@ type RequestLog = {
   errorKind: string | null;
   /** The stashed add behind this row, when its input was kept for a retry. */
   failedAddId: number | null;
+  /** What the operation stored or found, abbreviated, for the row's expand. */
+  resultSummary: RequestResultSummary | null;
+  /** Where the time went, when the operation called a model at all. */
+  stages: RequestStages | null;
+};
+
+/** One entry of a row's abbreviated result. */
+type RequestResultItem = {
+  id?: string;
+  memory?: string;
+  score?: number;
+};
+
+/** The rest of the payload the row's expand renders, beyond the five columns. */
+type RequestResultSummary = {
+  items: RequestResultItem[];
+  total: number;
+  truncated: boolean;
 };
 
 /// Why an operation that succeeded produced nothing. The provider's own message lives in
@@ -127,12 +145,148 @@ const normalizeLog = (entry: ApiRequestLog): RequestLog => {
     reason: entry.reason ?? null,
     errorKind: entry.error_kind ?? null,
     failedAddId: entry.failed_add_id ?? null,
+    resultSummary: entry.result_summary ?? null,
+    stages: entry.stages ?? null,
   };
 };
+
+/// The labels of the stages, in the order they run, with the colour of their bar. `other` is
+/// what is left of the operation: the vector insert, the history write, the waits between them.
+const STAGES: { key: keyof RequestStages; label: string; bar: string }[] = [
+  { key: "llm_ms", label: "模型抽取", bar: "bg-emerald-500" },
+  { key: "embed_ms", label: "嵌入", bar: "bg-sky-500" },
+  { key: "classify_ms", label: "分类", bar: "bg-violet-500" },
+  { key: "other_ms", label: "其他", bar: "bg-neutral-400" },
+];
+
+/// Where the operation's time went, as one stacked bar plus a line per stage.
+///
+/// The total is already a column; this answers the question the total cannot — an add that took
+/// eight seconds is a different problem depending on whether the model, the embedder or the
+/// classifier held it up.
+function StageBreakdown({
+  stages,
+  total,
+}: {
+  stages: RequestStages;
+  total: number;
+}) {
+  const sum = STAGES.reduce((acc, s) => acc + (stages[s.key] ?? 0), 0);
+  // Percentages of the measured time, not of the wall clock: the stages are a breakdown of what
+  // was measured, and the two differ by the bookkeeping around them.
+  const scale = sum > 0 ? sum : 1;
+  return (
+    <div className="space-y-2" data-testid="stage-breakdown">
+      <div className="flex items-center justify-between text-xs text-onSurface-default-secondary">
+        <span>耗时分布</span>
+        <span className="tabular-nums">{Math.round(total)} ms</span>
+      </div>
+      <div className="flex h-2 w-full overflow-hidden rounded-full bg-surface-default-secondary">
+        {STAGES.map((stage) => {
+          const ms = stages[stage.key] ?? 0;
+          if (ms <= 0) return null;
+          return (
+            <div
+              key={stage.key}
+              className={stage.bar}
+              style={{ width: `${(ms / scale) * 100}%` }}
+              title={`${stage.label} ${Math.round(ms)} ms`}
+            />
+          );
+        })}
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-onSurface-default-secondary">
+        {STAGES.map((stage) => (
+          <span key={stage.key} className="flex items-center gap-1.5">
+            <span className={`size-2 rounded-full ${stage.bar}`} />
+            {stage.label}
+            <span
+              className="tabular-nums text-onSurface-default-primary"
+              data-testid={`stage-${stage.key}`}
+            >
+              {Math.round(stages[stage.key] ?? 0)} ms
+            </span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/// The row's expand: what it stored or found, then where its time went.
+///
+/// A bulk `IMPORT` deliberately has no detail: the row already states how many memories went in,
+/// and twenty abbreviated ones say less than that number does.
+function RequestDetail({ row }: { row: RequestLog }) {
+  const summary = row.resultSummary;
+  return (
+    <div className="space-y-4 px-4 py-3" data-testid="request-detail">
+      {summary && summary.items.length > 0 && (
+        <div className="space-y-1.5">
+          <div className="text-xs text-onSurface-default-secondary">
+            结果明细
+            {summary.truncated && (
+              <span className="ml-2 text-onSurface-default-tertiary">
+                前 {summary.items.length} 条 / 共 {summary.total} 条
+              </span>
+            )}
+          </div>
+          <ul className="max-h-56 space-y-1 overflow-y-auto pr-1">
+            {summary.items.map((item, index) => (
+              <li
+                key={item.id ?? index}
+                data-testid="detail-item"
+                className="flex items-start gap-2 text-xs leading-relaxed"
+              >
+                <span className="shrink-0 text-onSurface-default-tertiary tabular-nums">
+                  {index + 1}.
+                </span>
+                <span className="min-w-0 flex-1 break-words text-onSurface-default-primary">
+                  {item.memory || item.id || "--"}
+                </span>
+                {typeof item.score === "number" && (
+                  <span
+                    className="shrink-0 rounded border border-memBorder-primary px-1.5 tabular-nums text-onSurface-default-secondary"
+                    title="相似度"
+                  >
+                    {item.score.toFixed(3)}
+                  </span>
+                )}
+                {item.id && (
+                  <Link
+                    href={`/dashboard/memories?memory=${encodeURIComponent(item.id)}`}
+                    className="shrink-0 text-sky-600 hover:underline dark:text-sky-400"
+                  >
+                    查看
+                  </Link>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {!summary && row.operation.toUpperCase() !== "IMPORT" && (
+        <p className="text-xs text-onSurface-default-tertiary">
+          这次操作没有可列出的明细。
+        </p>
+      )}
+      {row.stages ? (
+        <StageBreakdown stages={row.stages} total={row.latencyMs} />
+      ) : (
+        <p className="text-xs text-onSurface-default-tertiary">
+          这次操作没有调用模型，因此没有分阶段耗时。
+        </p>
+      )}
+    </div>
+  );
+}
 
 export default function RequestsPage() {
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [page, setPage] = useState(0);
+  // One row at a time: the table is five columns tall, and several open rows turn it into a
+  // scrolling puzzle.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const {
     data: logs = [],
@@ -304,6 +458,11 @@ export default function RequestsPage() {
               data={logs.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)}
               columns={columns}
               getRowKey={(row) => row.id}
+              onRowClick={(row) =>
+                setExpandedId((prev) => (prev === row.id ? null : row.id))
+              }
+              expandedRowKey={expandedId}
+              expandedRow={(row) => <RequestDetail row={row} />}
             />
           </Card>
           {logs.length > PAGE_SIZE && (

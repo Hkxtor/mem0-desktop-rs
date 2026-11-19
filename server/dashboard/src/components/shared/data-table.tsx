@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import { Fragment, ReactNode } from "react";
 import { LucideIcon } from "lucide-react";
 
 interface Column<T> {
@@ -20,6 +20,13 @@ interface DataTableProps<T> {
   getRowKey?: (row: T, rowIndex: number) => string | number;
   onRowClick?: (row: T, rowIndex: number) => void;
   getRowClassName?: (row: T, rowIndex: number) => string | undefined;
+  /**
+   * Extra content shown under a row, full width. Returning `null` draws nothing, which is how a
+   * row that has no detail keeps the table short.
+   */
+  expandedRow?: (row: T, rowIndex: number) => ReactNode;
+  /** Which row is open, so the caller owns that decision and the table stays presentational. */
+  expandedRowKey?: string | number | null;
 }
 
 const classes = {
@@ -49,6 +56,8 @@ export function DataTable<T>({
   getRowKey,
   onRowClick,
   getRowClassName,
+  expandedRow,
+  expandedRowKey,
 }: DataTableProps<T>) {
   const minHeight = data.length > 0 ? Math.max(76, 38 + data.length * 38) : 100;
   // Proportional column widths so table fits container (width numbers treated as relative weights)
@@ -156,33 +165,57 @@ export function DataTable<T>({
           </tr>
         </thead>
         <tbody className="transition-all duration-300 ease-in-out">
-          {data.map((row, rowIndex) => (
-            <tr
-              key={getRowKey ? String(getRowKey(row, rowIndex)) : rowIndex}
-              className={`${classes.tableRow} ${
-                onRowClick ? "cursor-pointer" : ""
-              } ${getRowClassName ? (getRowClassName(row, rowIndex) ?? "") : ""} animate-fade-in`}
-              onClick={onRowClick ? () => onRowClick(row, rowIndex) : undefined}
-            >
-              {columns.map((column, colIndex) => {
-                const value = row[column.key];
-                const baseCellClass =
-                  column.cellVariant === "flush"
-                    ? classes.tableCellFlush
-                    : classes.tableCell;
-                const cellClassName = `${column.className || baseCellClass} min-w-0 overflow-hidden`;
-                return (
-                  <td key={colIndex} className={cellClassName}>
-                    <div className="min-w-0 overflow-hidden">
-                      {column.render
-                        ? column.render(value, row)
-                        : String(value)}
-                    </div>
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
+          {data.map((row, rowIndex) => {
+            const rowKey = getRowKey
+              ? String(getRowKey(row, rowIndex))
+              : rowIndex;
+            const open =
+              expandedRow !== undefined &&
+              expandedRowKey !== undefined &&
+              expandedRowKey !== null &&
+              String(expandedRowKey) === String(rowKey);
+            const detail = open ? expandedRow(row, rowIndex) : null;
+            return (
+              <Fragment key={rowKey}>
+                <tr
+                  className={`${classes.tableRow} ${
+                    onRowClick ? "cursor-pointer" : ""
+                  } ${getRowClassName ? (getRowClassName(row, rowIndex) ?? "") : ""} animate-fade-in`}
+                  onClick={
+                    onRowClick ? () => onRowClick(row, rowIndex) : undefined
+                  }
+                >
+                  {columns.map((column, colIndex) => {
+                    const value = row[column.key];
+                    const baseCellClass =
+                      column.cellVariant === "flush"
+                        ? classes.tableCellFlush
+                        : classes.tableCell;
+                    const cellClassName = `${column.className || baseCellClass} min-w-0 overflow-hidden`;
+                    return (
+                      <td key={colIndex} className={cellClassName}>
+                        <div className="min-w-0 overflow-hidden">
+                          {column.render
+                            ? column.render(value, row)
+                            : String(value)}
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+                {detail ? (
+                  <tr
+                    data-testid="expanded-row"
+                    className="border-t border-memBorder-primary bg-surface-default-fg-secondary"
+                  >
+                    <td colSpan={columns.length} className="p-0 align-top">
+                      {detail}
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
+            );
+          })}
         </tbody>
       </table>
     </div>

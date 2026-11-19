@@ -301,6 +301,10 @@ pub(super) async fn add_memory_inner(
     let classifier = super::classifier_or_restore(&state).await;
     let mut classified: Vec<Vec<String>> = vec![Vec::new(); results.len()];
     if let Some(clf) = classifier {
+        // Measured across the whole loop, not per memory: the spawned tasks do not inherit the
+        // stage counter (a task-local belongs to the task that scoped it), so this is the only
+        // place classification time is recorded — and it must not be counted twice.
+        let classify_started = std::time::Instant::now();
         let mut tasks = tokio::task::JoinSet::new();
         let mut next = 0usize;
         while next < results.len() || !tasks.is_empty() {
@@ -328,6 +332,7 @@ pub(super) async fn add_memory_inner(
                 classified[index] = cats;
             }
         }
+        crate::stage_timing::add_classify_ms(classify_started.elapsed().as_secs_f64() * 1000.0);
     }
     let mut out: Vec<Value> = Vec::with_capacity(results.len());
     for (i, r) in results.iter().enumerate() {
