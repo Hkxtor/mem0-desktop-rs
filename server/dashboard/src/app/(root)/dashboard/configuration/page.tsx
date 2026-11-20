@@ -65,6 +65,20 @@ const INPUT_TYPE_LABEL: Record<string, string> = {
   passage: "passage",
 };
 
+/**
+ * Reasoning effort levels an OpenAI-compatible endpoint accepts for a reasoning model.
+ *
+ * Only sent when the operator picks one: the client leaves the field out by default, so the
+ * provider's own default applies. `minimal` exists on the newer GPT-5 line and is rejected by
+ * the o-series, which is why it is offered but not chosen for you.
+ */
+const REASONING_EFFORT_LABEL: Record<string, string> = {
+  minimal: "minimal：最短思考（仅 GPT-5 系列）",
+  low: "low：快，适合抽取",
+  medium: "medium：provider 默认档",
+  high: "high：最慢、最准",
+};
+
 export default function ConfigurationPage() {
   const { isAdmin } = useAuth();
   // Appearance is a display preference, not a model setting: it lives here now that the desktop
@@ -73,6 +87,9 @@ export default function ConfigurationPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [llmProvider, setLlmProvider] = useState("");
   const [llmModel, setLlmModel] = useState("");
+  // Empty means "send nothing": the client then leaves `reasoning_effort` out of the request and
+  // the provider applies its own default.
+  const [llmReasoningEffort, setLlmReasoningEffort] = useState("");
   // One key per line. The server stores a list; the field shows what was typed, never what is
   // stored (the stored values come back redacted).
   const [llmApiKey, setLlmApiKey] = useState("");
@@ -128,6 +145,10 @@ export default function ConfigurationPage() {
     if (!config) return;
     setLlmProvider((current) => current || config.llm?.provider || "");
     setLlmModel((current) => current || config.llm?.config?.model || "");
+    const effort = config.llm?.config?.reasoning_effort;
+    if (typeof effort === "string") {
+      setLlmReasoningEffort((current) => current || effort);
+    }
     setLlmBaseUrl((current) => current || readBaseUrl(config.llm));
     setEmbedderProvider(
       (current) => current || config.embedder?.provider || "",
@@ -318,6 +339,7 @@ export default function ConfigurationPage() {
         model: llmModel,
         apiKeys: parseApiKeys(llmApiKey),
         baseUrl: llmBaseUrl,
+        reasoningEffort: llmReasoningEffort,
       });
       // No copying of the LLM's keys into this section: the server inherits the LLM's pool when
       // this one names none and shares its provider, and a copy would go stale the moment the
@@ -475,6 +497,41 @@ export default function ConfigurationPage() {
             />
             <p className="text-xs text-onSurface-default-tertiary">
               用于代理、网关或自建端点。
+            </p>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">思考强度（reasoning_effort）</Label>
+            <Select
+              value={llmReasoningEffort || "none"}
+              onValueChange={(value) =>
+                setLlmReasoningEffort(value === "none" ? "" : value)
+              }
+              disabled={!isAdmin}
+            >
+              <SelectTrigger data-testid="llm-reasoning-effort">
+                <SelectValue placeholder="不发送">
+                  {REASONING_EFFORT_LABEL[llmReasoningEffort] ?? undefined}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">不发送（用 provider 默认）</SelectItem>
+                <SelectItem value="minimal">
+                  {REASONING_EFFORT_LABEL.minimal}
+                </SelectItem>
+                <SelectItem value="low">
+                  {REASONING_EFFORT_LABEL.low}
+                </SelectItem>
+                <SelectItem value="medium">
+                  {REASONING_EFFORT_LABEL.medium}
+                </SelectItem>
+                <SelectItem value="high">
+                  {REASONING_EFFORT_LABEL.high}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-onSurface-default-tertiary">
+              只对推理模型（o1 / o3 / gpt-5 系列）生效，其他模型会忽略该字段。
+              抽取记忆的请求本就不需要深度推理，模型响应慢时调低这一项比换模型便宜。
             </p>
           </div>
         </CardContent>

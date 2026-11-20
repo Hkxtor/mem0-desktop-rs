@@ -93,8 +93,19 @@ curl http://127.0.0.1:8888/keys/status
 
 为什么这样设计、否决了哪些替代方案，见 [`server-rs/docs/adr/0001-api-key-pools.md`](../../docs/adr/0001-api-key-pools.md)。
 
-## 嵌入模型（Embedding）
+## LLM 模型与思考强度
 
+抽取记忆用的模型在 **Configuration → LLM 模型** 里配置：provider、模型、密钥、Base URL，以及**思考强度**（`reasoning_effort`）。
+
+思考强度只对推理模型有意义（`o1` / `o3` / `gpt-5` 这几个系列）。选项是 `minimal`、`low`、`medium`、`high`，默认是**不发送**——请求体里连这个键都没有，用上游模型自己的默认档。不做成默认值是有意的：对一个没配过这一项的人，升级之后发出去的请求必须与升级前一模一样。
+
+- 模型名不被识别为推理模型时（`gpt-4o`、`claude`、本地模型……）这一项即使存着也不会发送。客户端只在认得出的推理模型上带这个参数——往不认识的端点塞未知字段，通常是 400 而不是被忽略。
+- 抽取记忆是「照着原文摘出事实」，不需要深度推理。模型响应慢时先调低这一项再看看，比换模型便宜得多。
+- 分类器（SystemOne）有自己的预算（4096 tokens），不受这一项影响。
+
+顺手记下另外几个默认值，它们目前只能在 `POST /configure` 的 `llm.config` 里手工指定：`temperature` 0.1、`top_p` 0.1、`max_tokens` 8192（见 `crates/mem0-llm/src/config.rs`）。
+
+## 嵌入模型（Embedding）
 在 **Configuration → 嵌入模型** 里配置：provider、模型、密钥、Base URL、维度，以及（少数模型才需要的）**输入类型**。
 
 ### 输入类型（`input_type`）

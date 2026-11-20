@@ -7,6 +7,7 @@ type ProviderConfig = {
     api_key?: string;
     embedding_dims?: number;
     input_type?: string;
+    reasoning_effort?: string;
     [key: string]: unknown;
   };
 };
@@ -156,6 +157,7 @@ export const buildProviderConfig = ({
   baseUrl,
   embeddingDims,
   inputType,
+  reasoningEffort,
 }: {
   provider: string;
   model: string;
@@ -164,6 +166,7 @@ export const buildProviderConfig = ({
   baseUrl?: string;
   embeddingDims?: number;
   inputType?: string;
+  reasoningEffort?: string;
 }) => {
   if (!provider) {
     return undefined;
@@ -188,6 +191,12 @@ export const buildProviderConfig = ({
   // the select would silently keep `auto`. The server drops an empty value before persisting.
   if (inputType !== undefined) {
     config.input_type = inputType.trim();
+  }
+
+  // Same rule as input_type: clearing the select has to reach the server as an explicit empty
+  // string, because a missing key means "leave the stored value alone".
+  if (reasoningEffort !== undefined) {
+    config.reasoning_effort = reasoningEffort.trim();
   }
 
   return { provider, config };
