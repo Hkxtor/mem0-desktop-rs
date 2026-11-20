@@ -128,6 +128,10 @@ export default function MemoriesPage() {
   const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null);
   const [memoryToDelete, setMemoryToDelete] = useState<Memory | null>(null);
   const [page, setPage] = useState(0);
+  // How many memories the server says there are, all pages included. Without it the page could
+  // only say "共 1000 条" about a library of 4825 — and that 1000 was an arbitrary slice, which
+  // is how a memory the Requests page had just reported went missing from this list.
+  const [total, setTotal] = useState(0);
   const apiBase = displayApiUrl();
 
   // Source inputs and change history for the open memory.
@@ -149,6 +153,12 @@ export default function MemoriesPage() {
   const noMatchRef = useRef<string[]>([]);
   const cancelRef = useRef(false);
 
+  // The search box and the time range filter in the browser, so when either is on the page
+  // loads a window and filters it locally — and says so, rather than claiming to have searched
+  // the whole library. With neither on, the table pages on the server and every memory is
+  // reachable by walking.
+  const filteredLocally = query.trim() !== "" || range !== "all";
+
   const {
     data: memories = [],
     isLoading,
@@ -156,17 +166,41 @@ export default function MemoriesPage() {
     refetch,
   } = useApiQuery<Memory[]>(
     async () => {
-      const params: Record<string, string | number> = {
-        top_k: MEMORY_FETCH_LIMIT,
-      };
+      const params: Record<string, string | number> = filteredLocally
+        ? { top_k: MEMORY_FETCH_LIMIT }
+        : { top_k: PAGE_SIZE, offset: page * PAGE_SIZE };
       if (activeCategories.length > 0)
         params.categories = activeCategories.join(",");
       const res = await api.get(MEMORY_ENDPOINTS.BASE, { params });
+      setTotal(Number(res.data?.total ?? 0));
       const raw = res.data?.results ?? res.data ?? [];
       return Array.isArray(raw) ? raw : [];
     },
     { errorToast: "无法加载记忆", initialData: [] },
   );
+
+  // `useApiQuery` reads its fetcher through a ref, so a changed page number does not re-run it
+  // by itself.
+  const pageRef = useRef(page);
+  useEffect(() => {
+    if (pageRef.current === page) return;
+    pageRef.current = page;
+    void refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
+
+  // Turning a local filter on or off changes what the server is asked for: a window to filter
+  // here, or one page to show. Either way the page counter starts over, since page 3 of the
+  // previous mode is not page 3 of this one.
+  const filteredRef = useRef(filteredLocally);
+  useEffect(() => {
+    if (filteredRef.current === filteredLocally) return;
+    filteredRef.current = filteredLocally;
+    pageRef.current = 0;
+    setPage(0);
+    void refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredLocally]);
 
   const { data: stats, refetch: refetchStats } = useApiQuery<CategoryStats>(
     async () => {
@@ -200,13 +234,32 @@ export default function MemoriesPage() {
 
   // Arriving from a Requests row's result detail, which named this exact memory. Opening it is
   // the whole point of the link: landing on the list and leaving the operator to find the entry
-  // again would be no better than not linking at all.
+  // again would be no better than not linking at all. The memory may not be on the page that
+  // happens to be loaded, so ask the server for it by id.
   const memoryParam = searchParams.get("memory") ?? "";
   useEffect(() => {
     if (!memoryParam) return;
     const hit = memories.find((m) => m.id === memoryParam);
-    if (hit) setSelectedMemory(hit);
-  }, [memoryParam, memories]);
+    if (hit) {
+      setSelectedMemory(hit);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await api.get<Memory>(MEMORY_ENDPOINTS.BY_ID(memoryParam));
+        if (!cancelled && res.data) setSelectedMemory(res.data);
+      } catch {
+        // A stale link: the memory was deleted. The list is still worth showing.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // `memories` is deliberately absent: re-running on every fetch would reopen a memory the
+    // operator closed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memoryParam]);
 
   // Re-fetch when the URL category filter changes (the query hook only refetches
   // on demand, so drive it from here).
@@ -287,11 +340,14 @@ export default function MemoriesPage() {
         (a.created_at ? new Date(a.created_at).getTime() : 0),
     );
 
-  const totalPages = Math.ceil(visibleMemories.length / PAGE_SIZE);
-  const paginatedMemories = visibleMemories.slice(
-    page * PAGE_SIZE,
-    (page + 1) * PAGE_SIZE,
-  );
+  // Paged on the server when nothing is filtered locally, so the slice here is already the
+  // page; a filtered window is still sliced in the browser.
+  const totalPages = filteredLocally
+    ? Math.ceil(visibleMemories.length / PAGE_SIZE)
+    : Math.ceil(total / PAGE_SIZE);
+  const paginatedMemories = filteredLocally
+    ? visibleMemories.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+    : visibleMemories;
 
   const handleDelete = async () => {
     if (!memoryToDelete) return;
@@ -672,12 +728,21 @@ export default function MemoriesPage() {
               }
             />
           </Card>
-          {totalPages > 1 && (
+          {/* Shown for a filtered window too, even when it fits on one page: the footer is where
+              the page says how much of the library the filter actually looked at. */}
+          {(totalPages > 1 || filteredLocally) && (
             <div className="flex items-center justify-between text-sm text-onSurface-default-tertiary">
               <span>
-                {page * PAGE_SIZE + 1}–
-                {Math.min((page + 1) * PAGE_SIZE, visibleMemories.length)} / 共{" "}
-                {visibleMemories.length} 条
+                {filteredLocally ? (
+                  <span>
+                    最近 {memories.length} 条中筛出 {visibleMemories.length} 条
+                  </span>
+                ) : (
+                  <span>
+                    {page * PAGE_SIZE + 1}–
+                    {Math.min((page + 1) * PAGE_SIZE, total)} / 共 {total} 条
+                  </span>
+                )}
               </span>
               <div className="flex gap-2">
                 <Button
