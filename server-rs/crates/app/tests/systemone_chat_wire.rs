@@ -226,6 +226,16 @@ async fn add_survives_a_failing_classifier_but_records_it() {
     assert_eq!(status, StatusCode::OK, "{added}");
     assert_eq!(added["results"][0]["categories"], json!([]), "{added}");
 
-    let (_, counts) = call(&a.router, "GET", "/systemone/counts", None).await;
+    // The failure is recorded by the background worker, which runs after this add returned.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut counts = Value::Null;
+    while std::time::Instant::now() < deadline {
+        let (_, seen) = call(&a.router, "GET", "/systemone/counts", None).await;
+        if !seen["last_error"].is_null() {
+            counts = seen;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
     assert!(!counts["last_error"].is_null(), "{counts}");
 }

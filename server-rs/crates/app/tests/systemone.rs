@@ -18,6 +18,30 @@ fn app() -> App {
     App { _dir: dir, router }
 }
 
+/// Poll until the background classifier has left a trace this test can assert on.
+///
+/// Classification moved out of the add (`crate::classify_queue`), so "the add already returned"
+/// no longer implies "classification already ran" — the assertion has to be about where it ends
+/// up. `check` receives the memory row and the counts payload; returning true stops the wait.
+async fn wait_for(
+    app: &axum::Router,
+    id: &str,
+    mut check: impl FnMut(&Value, &Value) -> bool,
+) -> (Value, Value) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut last = (Value::Null, Value::Null);
+    while std::time::Instant::now() < deadline {
+        let (_, one) = call(app, "GET", &format!("/memories/{id}"), None).await;
+        let (_, counts) = call(app, "GET", "/systemone/counts", None).await;
+        if check(&one, &counts) {
+            return (one, counts);
+        }
+        last = (one, counts);
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    last
+}
+
 async fn call(
     app: &axum::Router,
     method: &str,
@@ -227,11 +251,14 @@ async fn empty_provider_turns_categorization_off() {
         Some(json!({"messages": [{"role": "user", "content": "a rust fact"}], "user_id": "u", "infer": false})),
     )
     .await;
-    assert_eq!(
-        added["results"][0]["categories"],
-        json!(["technology"]),
-        "{added}"
-    );
+    // The add answers before classification, so the tag has to be waited for.
+    assert_eq!(added["results"][0]["categories"], json!([]), "{added}");
+    let id = added["results"][0]["id"].as_str().unwrap().to_string();
+    let (tagged, _) = wait_for(&a.router, &id, |one, _| {
+        one["categories"] == json!(["technology"])
+    })
+    .await;
+    assert_eq!(tagged["categories"], json!(["technology"]), "{tagged}");
 
     // off
     let (status, body) = call(
@@ -303,8 +330,19 @@ async fn unreachable_provider_is_recorded_not_swallowed() {
     assert_eq!(status, StatusCode::OK, "{added}");
     assert_eq!(added["results"][0]["categories"], json!([]), "{added}");
 
-    // but the failure is visible
-    let (_, counts) = call(&a.router, "GET", "/systemone/counts", None).await;
+    // but the failure is visible — once the worker has tried, which is after the add returned
+    let id = added["results"][0]["id"].as_str().unwrap().to_string();
+    let (_, counts) = {
+        let (one, counts) = wait_for(&a.router, &id, |_, counts| {
+            counts["last_error"]
+                .as_str()
+                .map(|e| !e.is_empty())
+                .unwrap_or(false)
+        })
+        .await;
+        let _ = one;
+        (StatusCode::OK, counts)
+    };
     let err = counts["last_error"]
         .as_str()
         .unwrap_or_default()

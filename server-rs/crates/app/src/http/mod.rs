@@ -72,6 +72,12 @@ pub struct AppState {
     /// The category classifier, once a `systemone` section is configured. `None` means
     /// classification is off (or not yet built lazily from the persisted config).
     pub systemone: Arc<tokio::sync::RwLock<Option<Arc<crate::categories::Classifier>>>>,
+    /// Memories waiting to be classified in the background. Add hands the ids over and answers
+    /// without waiting — see [`crate::classify_queue`] for why.
+    pub classify: crate::classify_queue::ClassifyQueue,
+    /// The receiving half of [`Self::classify`], taken once by [`build_router_arc`] to start the
+    /// worker. `take()` rather than a clone so a second router cannot spawn a second consumer.
+    pub classify_rx: std::sync::Mutex<Option<crate::classify_queue::Worker>>,
     /// Why the last classification attempt failed, when one did. Classification is
     /// best-effort, so a wrong base_url or a rejected key otherwise looks exactly like
     /// "no categories apply" — an empty `categories` array. The Categories page and
@@ -107,12 +113,15 @@ impl AppState {
             Ok(s) if !s.is_empty() => s,
             _ => store.get_or_create_jwt_secret()?,
         };
+        let (classify, classify_worker) = crate::classify_queue::ClassifyQueue::channel();
         Ok(Self {
             focus_tx,
             data_dir,
             store: Arc::new(Mutex::new(store)),
             memory: Arc::new(tokio::sync::RwLock::new(None)),
             systemone: Arc::new(tokio::sync::RwLock::new(None)),
+            classify,
+            classify_rx: std::sync::Mutex::new(Some(classify_worker)),
             systemone_error: Arc::new(std::sync::Mutex::new(None)),
             config_error: Arc::new(std::sync::Mutex::new(None)),
             bound_port: Arc::new(std::sync::Mutex::new(None)),
@@ -156,6 +165,19 @@ pub fn build_router(state: AppState) -> Router {
 /// Same as [`build_router`], for callers that need the `Arc<AppState>` back — the
 /// startup path builds the runtime on the state before the router takes ownership.
 pub fn build_router_arc(state: Arc<AppState>) -> Router {
+    // Start the classification worker here rather than in `main`: every path that builds a
+    // router (the binary, and `app_for_test*`) then gets a consumer, and none of them can
+    // forget one. The receiver is `take`n, so a second router over the same state does not
+    // start a second worker.
+    let worker = state
+        .classify_rx
+        .lock()
+        .ok()
+        .and_then(|mut slot| slot.take());
+    if let Some(worker) = worker {
+        let worker_state = state.clone();
+        tokio::spawn(crate::classify_queue::run(worker_state, worker));
+    }
     let static_r = static_files::static_routes(&state);
     let public = Router::new()
         .route("/health", axum::routing::get(routes_health::health))

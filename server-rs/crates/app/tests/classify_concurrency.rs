@@ -1,8 +1,13 @@
-//! Auto-classification after an add must not be serial.
+//! Classification happens after the add has been answered, and it happens one memory at a time.
 //!
-//! `Memory::add` already batches the embeddings and the insert; classifying each extracted memory
-//! one at a time gave all of that back. These tests measure the wall clock with a classifier that
-//! deliberately stalls, so a serial implementation cannot pass by accident.
+//! The invariant used to be the opposite: classification ran inside the add, four at a time. It
+//! moved to a background worker (`crate::classify_queue`) because the add was paying 1383 ms of
+//! a real 11017 ms for tags the response never carried. So what is asserted here changed — the
+//! add must return without tags, and the worker must then tag every memory *serially*, because
+//! it spends the same provider keys the extraction just used.
+//!
+//! The stall in the mock classifier is what makes both halves observable: an add that still
+//! waited would sit there, and a concurrent worker would show a peak above one.
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -58,12 +63,18 @@ async fn embed(Json(body): Json<Value>) -> Json<Value> {
 struct InFlight {
     now: AtomicUsize,
     peak: AtomicUsize,
+    total: AtomicUsize,
 }
 
 impl InFlight {
     fn enter(&self) {
         let now = self.now.fetch_add(1, Ordering::SeqCst) + 1;
         self.peak.fetch_max(now, Ordering::SeqCst);
+        self.total.fetch_add(1, Ordering::SeqCst);
+    }
+    /// How many classification requests have been answered so far.
+    fn total(&self) -> usize {
+        self.total.load(Ordering::SeqCst)
     }
     fn leave(&self) {
         self.now.fetch_sub(1, Ordering::SeqCst);
@@ -141,8 +152,37 @@ async fn call(app: &Router, method: &str, uri: &str, body: Option<Value>) -> (St
     )
 }
 
+/// Poll until every memory in `ids` carries a category, or give up.
+///
+/// Background work means "not yet" is a normal state, so the assertion has to be about where it
+/// ends up rather than about one immediate read. 30 s is far longer than six stalled
+/// classifications need; the point is that a slow CI machine cannot make this flaky.
+async fn wait_for_categories(app: &Router, ids: &[String]) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut last = Value::Null;
+    while Instant::now() < deadline {
+        let (_, listed) = call(app, "GET", "/memories?user_id=alice&top_k=50", None).await;
+        let rows = listed["results"].as_array().cloned().unwrap_or_default();
+        let tagged = ids.iter().all(|id| {
+            rows.iter().any(|r| {
+                r["id"] == json!(id)
+                    && r["categories"]
+                        .as_array()
+                        .map(|a| !a.is_empty())
+                        .unwrap_or(false)
+            })
+        });
+        if tagged {
+            return listed;
+        }
+        last = listed;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("memories never got their categories within 30s: {last}");
+}
+
 #[tokio::test]
-async fn an_add_classifies_its_memories_concurrently() {
+async fn an_add_returns_before_classification_and_the_worker_is_serial() {
     let (base, inflight) = start().await;
     let app = app();
     let (status, body) = call(
@@ -181,39 +221,51 @@ async fn an_add_classifies_its_memories_concurrently() {
         })),
     )
     .await;
-    let wall = started.elapsed();
+    let add_wall = started.elapsed();
     assert_eq!(status, StatusCode::OK, "{body}");
+
     let results = body["results"].as_array().unwrap();
     assert_eq!(results.len(), EXTRACTED, "{body}");
-    // The categories still landed, and on the right rows.
+    let ids: Vec<String> = results
+        .iter()
+        .map(|r| r["id"].as_str().unwrap().to_string())
+        .collect();
+
+    // The point of the whole change: the response does not carry tags. Not "some are missing" —
+    // every one is empty, because classification had not started when the response was built.
     for r in results {
-        assert!(
-            !r["categories"]
-                .as_array()
-                .map(|a| a.is_empty())
-                .unwrap_or(true),
-            "every memory should be tagged: {body}"
+        assert_eq!(
+            r["categories"],
+            json!([]),
+            "the add must not wait for classification: {body}"
         );
     }
+    // Six stalled classifications are 2.4 s of work; the add has to be a small fraction of it.
+    assert!(
+        add_wall < CLASSIFY_STALL * (EXTRACTED as u32) / 2,
+        "the add took {add_wall:?}, which means it waited for classification"
+    );
 
-    // The direct measure: more than one classification was in flight at the same time. One is
-    // what a `for` loop produces, and it is exact — no deadline, no clock.
+    // ...and the tags do arrive, on every row.
+    let listed = wait_for_categories(&app.router, &ids).await;
+
+    // Serial on purpose: one classifier call at a time, however many memories are queued.
     let peak = inflight.peak();
-    assert!(
-        peak > 1,
-        "only {peak} classification(s) ever ran at once out of {EXTRACTED}: still one at a time"
+    assert_eq!(
+        peak, 1,
+        "the worker must classify one memory at a time, saw {peak} at once: {listed}"
     );
-    // Not the whole batch at once either — that would hammer the provider. The cap is four.
-    assert!(
-        peak <= 4,
-        "peak concurrency {peak} exceeds the intended cap of 4"
+    assert_eq!(
+        inflight.total(),
+        EXTRACTED,
+        "every memory should have been classified exactly once"
     );
-    // Wall clock is reported, not asserted: it is the number the operator cares about, and
-    // asserting on it only makes the test fail on a loaded machine.
-    println!("wall={wall:?}, peak in flight={peak}, for {EXTRACTED} classifications");
+    println!(
+        "add={add_wall:?} for {EXTRACTED} memories, {} classifications done serially",
+        inflight.total()
+    );
 }
 
-/// The response order must survive concurrency: two identical texts are two different rows.
 #[tokio::test]
 async fn categories_land_on_the_row_they_belong_to() {
     let (base, _inflight) = start().await;

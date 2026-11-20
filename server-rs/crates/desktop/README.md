@@ -162,6 +162,20 @@ provider 选 `openai`（OpenAI 兼容的 `/v1/embeddings`），Base URL 填 `htt
 
 分类是尽力而为的：模型调用失败时记忆照样存下（只是没有标签），失败原因出现在 `/systemone/counts` 的 `last_error`、配置页的「测试」按钮，以及应用日志里。
 
+### 分类在后台补，add 不等它
+
+`POST /memories` 的响应里 `categories` 恒为 `[]`，标签在记忆存下之后由后台 worker 逐条补上：
+
+- **为什么要这样**：分类只影响记忆页和分类页，add 的调用方从不读它。同步分类让一次实测 11017 ms 的 add 多花 1383 ms，还和抽取抢同一批密钥配额。
+- **一条一条来**：worker 是单线程串行的。一次 add 抽出 6 条记忆，标签是依次出现的，不是同时——刻意的，避免刚用完配额的提取之后立刻并发 6 个模型调用。
+- **看到标签的时间差**：正常情况下几百毫秒到几秒（分类模型本身的延迟）。刚 add 完立刻刷新记忆页，可能看到一行没有标签，再刷一次就有了。
+- **重启会丢**：队列在内存里，进程退出时还没分类的记忆不会被补上，会一直算作「未分类」。点一次「分类 N 条未分类记忆」即可补完，或调 `POST /systemone/classify-batch`。
+- **失败不重试**：某条分类失败只留空标签，不会在后台反复重试烧配额。原因见 `last_error`，记忆计数在 `/systemone/counts` 的 `unclassified`。
+
+`/systemone/counts` 因此多了两个字段：`pending`（还在队列里等分类的条数）和 `classified`（本次进程启动以来后台补上的条数）。刚 add 完看到 `unclassified` 增加是正常的，等 `pending` 回到 0 再看。
+
+请求页（Requests）里 ADD 行的耗时条仍然有四段，但「分类」段恒为 0——那段时间已经不在请求里了。
+
 ### 决策 API
 
 provider 选 `systemone` 表示用 Google 的 **decisions** 接口分类：一次请求、15 个问题、15 个概率，不写 prompt、不解析 JSON 数组。

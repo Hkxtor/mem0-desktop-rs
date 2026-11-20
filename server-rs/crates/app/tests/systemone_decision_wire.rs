@@ -111,6 +111,39 @@ fn app() -> App {
     }
 }
 
+/// Poll until a memory carries a category, or the deadline passes.
+///
+/// Classification runs in a background worker (`crate::classify_queue`), so the add answers with
+/// `categories: []` and both the tag and the decision request land a moment later.
+async fn wait_for_tags(app: &Router, id: &str) -> Value {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut last = Value::Null;
+    while std::time::Instant::now() < deadline {
+        let (_, one) = call(app, "GET", &format!("/memories/{id}"), None).await;
+        if one["categories"]
+            .as_array()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false)
+        {
+            return one;
+        }
+        last = one;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    last
+}
+
+/// Poll until the background worker has made `n` decision requests.
+async fn wait_for_decisions(mock: &Mock, n: usize) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while std::time::Instant::now() < deadline {
+        if mock.seen.lock().unwrap().len() >= n {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+}
+
 async fn call(app: &Router, method: &str, uri: &str, body: Option<Value>) -> (StatusCode, Value) {
     let builder = Request::builder().method(method).uri(uri);
     let request = match body {
@@ -174,11 +207,16 @@ async fn a_high_noul_tags_the_category() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{added}");
+    // The add is answered before classification; the tags arrive on the row afterwards.
+    assert_eq!(added["results"][0]["categories"], json!([]), "{added}");
+    let id = added["results"][0]["id"].as_str().unwrap().to_string();
+    let tagged = wait_for_tags(&a.router, &id).await;
     assert_eq!(
-        added["results"][0]["categories"],
+        tagged["categories"],
         json!(["food", "technology"]),
-        "{added}"
+        "{tagged}"
     );
+    wait_for_decisions(&mock, 1).await;
 
     // The wire: the RPC path, the auth header, the field name, and nothing extra.
     let seen = mock.seen.lock().unwrap().clone();
@@ -301,12 +339,25 @@ async fn a_rejected_key_still_stores_the_memory_untagged() {
         "an untagged memory is still a success: {added}"
     );
     assert_eq!(added["results"][0]["categories"], json!([]), "{added}");
-    assert_eq!(mock.seen.lock().unwrap().len(), 1);
 
-    // And the failure is visible rather than swallowed.
-    let (_, counts) = call(&a.router, "GET", "/systemone/counts", None).await;
+    // And the failure is visible rather than swallowed — recorded by the worker, after the add.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut counts = Value::Null;
+    while std::time::Instant::now() < deadline {
+        let (_, seen) = call(&a.router, "GET", "/systemone/counts", None).await;
+        counts = seen;
+        if counts["last_error"].is_string() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
     let last_error = counts["last_error"].as_str().unwrap_or_default();
     assert!(last_error.contains("API key not valid"), "{counts}");
+    assert_eq!(
+        mock.seen.lock().unwrap().len(),
+        1,
+        "one attempt, no retry loop"
+    );
 }
 
 /// A config on disk that still names the removed vendor, saved again from the dashboard
@@ -376,11 +427,11 @@ async fn a_stored_config_for_the_removed_vendor_is_migrated_on_save() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{added}");
-    assert_eq!(
-        added["results"][0]["categories"],
-        json!(["food"]),
-        "{added}"
-    );
+    assert_eq!(added["results"][0]["categories"], json!([]), "{added}");
+    let id = added["results"][0]["id"].as_str().unwrap().to_string();
+    let tagged = wait_for_tags(&router, &id).await;
+    assert_eq!(tagged["categories"], json!(["food"]), "{tagged}");
+    wait_for_decisions(&mock, 1).await;
     assert_eq!(mock.seen.lock().unwrap().len(), 1);
 }
 

@@ -183,6 +183,24 @@ async fn an_unknown_memory_has_no_inputs() {
     assert_eq!(inputs, json!([]));
 }
 
+/// Wait until `/systemone/counts` reports this many unclassified memories.
+///
+/// Adds are classified in a background worker now, so "just added three memories" no longer
+/// means "three memories already tagged" — the count is a state the test has to wait for.
+async fn wait_for_unclassified(app: &axum::Router, want: u64) -> Value {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut last = Value::Null;
+    while std::time::Instant::now() < deadline {
+        let (_, counts) = call(app, "GET", "/systemone/counts", None).await;
+        if counts["unclassified"] == json!(want) {
+            return counts;
+        }
+        last = counts;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    panic!("unclassified never reached {want}: {last}");
+}
+
 #[tokio::test]
 async fn the_batch_classifier_labels_what_is_unclassified_and_reports_the_rest() {
     let (_mock, url) = start(vec![(200, json!("[\"technology\"]"))]).await;
@@ -196,7 +214,7 @@ async fn the_batch_classifier_labels_what_is_unclassified_and_reports_the_rest()
     for text in ["a", "b", "c"] {
         add(&a.router, text, "alice").await;
     }
-    let (_, counts) = call(&a.router, "GET", "/systemone/counts", None).await;
+    let counts = wait_for_unclassified(&a.router, 0).await;
     assert_eq!(counts["unclassified"], json!(0), "{counts}");
 
     let (status, batch) = call(

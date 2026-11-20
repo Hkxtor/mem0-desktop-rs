@@ -15,10 +15,10 @@
 //! [`measure`] around the handler body, so it is per-request by construction and gone when the
 //! request is.
 //!
-//! Spawned tasks do **not** inherit it. That is what keeps classification honest: the classify
-//! loop spawns one task per memory, those tasks' model calls record nothing, and
-//! `classify_ms` — measured across the whole loop in the handler — is the only place that time
-//! appears. Counting it twice would make the bar chart claim more time than the request took.
+//! Spawned tasks do **not** inherit it, and that is now the whole story for classification:
+//! tagging moved to a background worker ([`crate::classify_queue`]), so it does not happen
+//! inside any request and records nothing here. `classify_ms` stays in the shape at 0 — the
+//! Requests page keeps its four segments, and dropping the key would move every golden file.
 
 use std::future::Future;
 use std::sync::{Arc, Mutex};
@@ -64,11 +64,6 @@ pub fn add_llm_ms(ms: f64) {
 /// Note time spent waiting on the embedder.
 pub fn add_embed_ms(ms: f64) {
     add(|t| t.embed_ms += ms);
-}
-
-/// Note the wall time of a classification pass, which the handler measures around its loop.
-pub fn add_classify_ms(ms: f64) {
-    add(|t| t.classify_ms += ms);
 }
 
 /// Run an operation body with a fresh counter and report where its time went.
@@ -213,11 +208,10 @@ mod tests {
 
     #[tokio::test]
     async fn recording_outside_a_measured_body_is_silently_dropped() {
-        // No panic, no counter: the failed-add retry loop and the spawned classify tasks call
-        // the same wrapped clients with nothing measuring them.
+        // No panic, no counter: the failed-add retry loop and the background classification
+        // worker call the same wrapped clients with nothing measuring them.
         add_llm_ms(100.0);
         add_embed_ms(100.0);
-        add_classify_ms(100.0);
     }
 
     #[tokio::test]

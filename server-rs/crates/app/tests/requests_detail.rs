@@ -377,13 +377,13 @@ async fn the_row_reports_where_the_time_went() {
 }
 
 #[tokio::test]
-async fn classification_time_is_its_own_stage() {
+async fn classification_is_not_inside_the_request_but_still_happens() {
     let _serial = gate();
     let (up, base) = start().await;
     let app = app();
-    // A classifier is configured, so the add runs one classification per extracted memory after
-    // the extraction. The decision client is not the `Llm` the extractor uses, which is exactly
-    // why this has to be measured separately instead of falling into `llm_ms`.
+    // A slow classifier is configured. Tagging moved to a background worker, so a stalled
+    // classifier must not show up in this request's stages at all — the segment stays, at zero,
+    // so the Requests page keeps its four bars and every golden file keeps its key.
     let cfg = json!({
         "version": "v1.1",
         "llm": {"provider": "openai", "config": {
@@ -413,20 +413,47 @@ async fn classification_time_is_its_own_stage() {
     .await;
     *up.decision_delay_ms.lock().unwrap() = 200;
 
-    add_remembering(&app.router, "I like tea and cycling").await;
+    let added = add_remembering(&app.router, "I like tea and cycling").await;
 
     let row = newest(&app.router, "ADD").await;
     let stages = row["stages"].clone();
-    let classify = stages["classify_ms"].as_f64().unwrap_or(0.0);
-    let llm = stages["llm_ms"].as_f64().unwrap_or(0.0);
     assert!(
-        classify >= 180.0,
-        "the stalled classifier is the slow step: {stages}"
+        stages.get("classify_ms").is_some(),
+        "the segment must stay in the shape even when it is always zero: {stages}"
+    );
+    assert_eq!(
+        stages["classify_ms"].as_f64().unwrap_or(-1.0),
+        0.0,
+        "classification runs after the response, so it must not appear in this request: {stages}"
     );
     assert!(
-        llm < 150.0,
-        "classification is a separate stage, not part of the model extraction: {stages}"
+        stages["llm_ms"].as_f64().unwrap_or(999.0) < 150.0,
+        "classification must not be folded into the extraction either: {stages}"
     );
+
+    // Not merely omitted from the timing: it happened. The worker tags the row a moment later.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut tagged = false;
+    while std::time::Instant::now() < deadline && !tagged {
+        let (_, one) = call(
+            &app.router,
+            "GET",
+            &format!(
+                "/memories/{}",
+                added["results"][0]["id"].as_str().unwrap_or_default()
+            ),
+            None,
+        )
+        .await;
+        tagged = one["categories"]
+            .as_array()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false);
+        if !tagged {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    }
+    assert!(tagged, "the background worker never tagged the memory");
 }
 
 #[tokio::test]

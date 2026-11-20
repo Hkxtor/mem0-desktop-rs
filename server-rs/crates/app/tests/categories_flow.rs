@@ -13,6 +13,30 @@ struct App {
     router: axum::Router,
 }
 
+/// Poll a memory row until its categories are non-empty.
+///
+/// Classification runs in a background worker now, so the add response is always empty and a
+/// single immediate read races the worker. 30 s is far more than needed; a slow CI box must not
+/// turn "not yet" into a failure.
+async fn wait_for_categories(app: &axum::Router, id: &str) -> Value {
+    let value: Value = id.into();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut last = Value::Null;
+    while std::time::Instant::now() < deadline {
+        let (_, one) = call(app, "GET", &format!("/memories/{id}"), None).await;
+        if one["categories"]
+            .as_array()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false)
+        {
+            return one;
+        }
+        last = one;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    panic!("{value} never got categories within 30s: {last}");
+}
+
 fn app() -> App {
     unsafe { std::env::set_var("AUTH_DISABLED", "true") };
     let dir = tempfile::tempdir().unwrap();
@@ -79,8 +103,11 @@ async fn add_auto_classifies_and_list_carries_top_level_categories() {
     configure_with_systemone(&a.router, r#"["technology"]"#).await;
     let body = add_memory(&a.router, "I built a RAG pipeline", "alice").await;
     let item = &body["results"][0];
-    assert_eq!(item["categories"], json!(["technology"]), "{body}");
+    // The add is answered before classification: tags arrive on the row, never in this response.
+    assert_eq!(item["categories"], json!([]), "{body}");
     let id = item["id"].as_str().unwrap().to_string();
+    let tagged = wait_for_categories(&a.router, &id).await;
+    assert_eq!(tagged["categories"], json!(["technology"]), "{tagged}");
 
     // the write-back landed in the payload: list shows it too
     let (_, listed) = call(&a.router, "GET", "/memories?user_id=alice&top_k=10", None).await;

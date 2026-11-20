@@ -6,6 +6,7 @@
 //! ephemeral one, and hand back the actual address.
 
 pub mod categories;
+pub mod classify_queue;
 pub mod config;
 pub mod decision;
 pub mod desktop_settings;

@@ -441,6 +441,11 @@ pub async fn category_counts(
         "model": effective_model(&section),
         "last_error": last_error,
         "unclassified": unclassified,
+        // Classification runs after the add is answered, so "unclassified" right after an add is
+        // expected rather than broken. These two say whether the worker is still catching up and
+        // how much it has tagged since this process started.
+        "pending": state.classify.pending(),
+        "classified": state.classify.classified(),
     })))
 }
 
