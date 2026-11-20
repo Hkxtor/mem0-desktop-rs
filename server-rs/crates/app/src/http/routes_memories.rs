@@ -84,6 +84,10 @@ pub struct GetAllQuery {
     pub agent_id: Option<String>,
     #[serde(default)]
     pub top_k: Option<usize>,
+    /// How many rows to skip. Listings come back newest-first, so this is what lets a caller
+    /// walk past the first page instead of mistaking a capped listing for the whole library.
+    #[serde(default)]
+    pub offset: Option<usize>,
     #[serde(default)]
     pub show_expired: Option<bool>,
     /// Comma-separated category names; AND semantics (a memory must carry every
@@ -715,19 +719,22 @@ async fn get_all_memories_inner(
         let mem = memory(&state).await?;
         // Python's unfiltered listing defaults to ALL_MEMORIES_LIMIT (1000).
         let top_k = q.top_k.unwrap_or(1000);
+        let offset = q.offset.unwrap_or(0);
         let cats = parse_categories_param(&q.categories);
-        let all = if cats.is_empty() {
-            mem.list_all(top_k).await.map_err(ApiError::from)?
+        let mut filters = JsonMap::new();
+        if !cats.is_empty() {
+            filters.insert("categories".into(), json!(cats));
+        }
+        let all = if filters.is_empty() {
+            mem.list_all(offset + top_k).await.map_err(ApiError::from)?
         } else {
             // category-only filter has no scope key, so get_all's scope requirement
             // does not apply — use the filtered unscoped listing instead.
-            let mut filters = JsonMap::new();
-            filters.insert("categories".into(), json!(cats));
-            mem.list_all_filtered(&filters, top_k)
+            mem.list_all_filtered(&filters, offset + top_k)
                 .await
                 .map_err(ApiError::from)?
         };
-        return Ok(Json(all));
+        return Ok(Json(page_of(&mem, all, &filters, offset, top_k).await));
     }
     let mem = memory(&state).await?;
     let mut filters = JsonMap::new();
@@ -745,8 +752,42 @@ async fn get_all_memories_inner(
         filters.insert("categories".into(), json!(cats));
     }
     let top_k = q.top_k.unwrap_or(100);
-    let all = mem.get_all(&filters, top_k).await.map_err(ApiError::from)?;
-    Ok(Json(all))
+    let offset = q.offset.unwrap_or(0);
+    let all = mem
+        .get_all(&filters, offset + top_k)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(Json(page_of(&mem, all, &filters, offset, top_k).await))
+}
+
+/// One page out of a listing, plus how many memories there are in all.
+///
+/// The listing methods take a cap, not a window, so the caller asks for `offset + limit` rows
+/// and drops the front here. The count comes from the store rather than from the page: a page
+/// that reports its own length as the total is how a library of 4825 came to look like 1000.
+async fn page_of(
+    mem: &Arc<mem0::Memory>,
+    all: Value,
+    filters: &JsonMap,
+    offset: usize,
+    limit: usize,
+) -> Value {
+    let items: Vec<Value> = all
+        .get("results")
+        .and_then(|v| v.as_array())
+        .map(|rows| rows.iter().skip(offset).take(limit).cloned().collect())
+        .unwrap_or_default();
+    // Counted over the same filters but not over expiry: an expired memory is hidden from the
+    // page and still counted until something removes it, so `total` can exceed what a walk to
+    // the end returns. Nothing in the desktop app sets an expiry, so this is a corner case
+    // rather than a wrong number people will meet.
+    let total = mem
+        .vector_store()
+        .list_page(filters, 0, 0)
+        .await
+        .map(|(_, total)| total)
+        .unwrap_or(items.len() as u64);
+    json!({ "results": items, "total": total })
 }
 
 pub async fn update_memory(

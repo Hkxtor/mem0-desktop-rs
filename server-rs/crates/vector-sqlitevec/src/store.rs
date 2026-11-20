@@ -21,6 +21,13 @@ pub struct SqliteVecStore {
     dims: usize,
 }
 
+/// How listings come back: newest first, id as the tiebreaker.
+///
+/// `created_at` is inside the JSON payload, and it is ISO-8601 with a `+00:00` offset, so a
+/// lexicographic descending sort is a chronological one. Sorting on the id alone (what export
+/// used to do) is stable but meaningless to a person looking for what they just added.
+const NEWEST_FIRST: &str = "json_extract(payload, '$.created_at') DESC, memory_id";
+
 impl SqliteVecStore {
     /// Test-only access to the shared connection (e.g. counting FTS rows).
     #[cfg(test)]
@@ -456,9 +463,14 @@ impl VectorStore for SqliteVecStore {
             format!("WHERE {where_sql}")
         };
         let limit = limit.unwrap_or(10_000) as i64;
+        // Newest first, with the id as a tiebreaker. Without an order the caller gets an
+        // arbitrary slice of the collection: `LIMIT 1000` over 4825 rows returned whichever
+        // rows the virtual table happened to scan, so a memory added a minute ago could be
+        // missing from the list while `/requests` said it was stored. The tiebreaker keeps
+        // paged reads from repeating or dropping rows when two memories share a timestamp.
         let sql = format!(
-            "SELECT memory_id, payload FROM {} {where_clause} LIMIT ?",
-            self.table
+            "SELECT memory_id, payload FROM {} {where_clause} ORDER BY {} LIMIT ?",
+            self.table, NEWEST_FIRST
         );
         let mut stmt = conn
             .prepare(&sql)
@@ -577,8 +589,8 @@ impl SqliteVecStore {
             .map_err(|e| Mem0Error::vector_store(format!("list_page count: {e}")))?;
 
         let sql = format!(
-            "SELECT memory_id, payload FROM {} {where_clause} ORDER BY memory_id LIMIT ? OFFSET ?",
-            self.table
+            "SELECT memory_id, payload FROM {} {where_clause} ORDER BY {} LIMIT ? OFFSET ?",
+            self.table, NEWEST_FIRST
         );
         let mut stmt = conn
             .prepare(&sql)
@@ -821,6 +833,73 @@ mod list_page_tests {
         // And the new row is reachable at the end rather than duplicating one already read.
         let (last, _) = page(&rt, &store, 8, 10);
         assert!(last.contains(&"id-9999".to_string()), "{last:?}");
+    }
+
+    /// A record whose `created_at` says when it was added, in the ISO-8601 shape the payload
+    /// carries, so the ordering tests exercise the real column rather than a missing one.
+    fn dated_record(n: usize, created_at: &str) -> VectorRecord {
+        let mut rec = record(n);
+        rec.payload
+            .insert("created_at".into(), serde_json::json!(created_at));
+        rec
+    }
+
+    #[test]
+    fn a_listing_comes_back_newest_first_and_a_capped_read_keeps_the_newest() {
+        // The field symptom: a library bigger than the listing cap showed an arbitrary slice,
+        // so a memory added a minute ago was missing while `/requests` said it was stored.
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::build(dir.path(), "mem0", 4).unwrap();
+        // Inserted oldest-first, so the scan order is the opposite of the only order a person
+        // would expect — that is what makes this test bite if the ORDER BY disappears.
+        let dates = [
+            "2026-01-01T00:00:00+00:00",
+            "2026-03-01T00:00:00+00:00",
+            "2026-05-01T00:00:00+00:00",
+            "2026-07-01T00:00:00+00:00",
+        ];
+        rt.block_on(async {
+            let records: Vec<VectorRecord> = dates
+                .iter()
+                .enumerate()
+                .map(|(i, d)| dated_record(i, d))
+                .collect();
+            store.insert(records).await.unwrap();
+        });
+
+        let ids = rt.block_on(async {
+            store
+                .list(&JsonMap::new(), None)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|h| h.id)
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(
+            ids,
+            vec!["id-0003", "id-0002", "id-0001", "id-0000"],
+            "a listing must be newest first"
+        );
+
+        // The cap has to keep the newest rows, not whichever ones the scan reached first.
+        let capped = rt.block_on(async {
+            store
+                .list(&JsonMap::new(), Some(2))
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|h| h.id)
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(
+            capped,
+            vec!["id-0003", "id-0002"],
+            "the cap keeps the newest"
+        );
     }
 
     #[test]

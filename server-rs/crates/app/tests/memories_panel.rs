@@ -268,9 +268,17 @@ async fn the_batch_classifier_fills_empty_categories_and_skips_expired() {
     assert_eq!(batch["labeled"], json!(1), "{batch}");
     assert_eq!(batch["remaining"], json!(1), "{batch}");
 
-    // The labelled memory now carries the category...
-    let (_, one) = call(&a.router, "GET", &format!("/memories/{fresh}"), None).await;
-    assert_eq!(one["categories"], json!(["food"]), "{one}");
+    // The labelled memory now carries the category. Which of the two it was is not pinned:
+    // the batch walks the listing, and the listing is newest-first, so pinning the id would
+    // make this test a statement about scan order rather than about classification.
+    let (_, listed) = call(&a.router, "GET", "/memories?top_k=10", None).await;
+    let labelled: Vec<&Value> = listed["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .filter(|m| m["categories"] == json!(["food"]))
+        .collect();
+    assert_eq!(labelled.len(), 1, "exactly one was labelled: {listed}");
 
     // ...and the second batch finishes the store.
     let (_, batch2) = call(
@@ -283,6 +291,8 @@ async fn the_batch_classifier_fills_empty_categories_and_skips_expired() {
     assert_eq!(batch2["remaining"], json!(0), "{batch2}");
     let (_, counts) = call(&a.router, "GET", "/systemone/counts", None).await;
     assert_eq!(counts["unclassified"], json!(0), "{counts}");
+    let (_, done) = call(&a.router, "GET", &format!("/memories/{fresh}"), None).await;
+    assert_eq!(done["categories"], json!(["food"]), "{done}");
 }
 
 #[tokio::test]
